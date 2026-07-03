@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/arc_motif.dart';
+import '../config.dart';
 
 /// Lets a parent widget (the sidebar) trigger actions on the live
 /// ChatScreen instance kept alive inside the IndexedStack, without needing
@@ -22,7 +23,8 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> implements ChatScreenController {
+class _ChatScreenState extends State<ChatScreen>
+    implements ChatScreenController {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = []; // newest first (list is reversed)
@@ -54,7 +56,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
 
   void _scrollToLatest() {
     if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    _scrollController.animateTo(0,
+        duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
   }
 
   Future<void> _connect() async {
@@ -70,8 +73,11 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
     // it mints a fresh one and tells us via the "session" message.
     final storedConversationId = await ApiService.getConversationId();
     if (!mounted) return;
-    final conversationParam = storedConversationId != null ? '&conversation=$storedConversationId' : '';
-    final wsUrl = Uri.parse('ws://localhost:8080/ws/chat?token=$token$conversationParam');
+    final conversationParam = storedConversationId != null
+        ? '&conversation=$storedConversationId'
+        : '';
+    final wsUrl =
+        final wsUrl = Uri.parse(AppConfig.wsUrl('/ws/chat?token=$token$conversationParam'));
     try {
       _channel = WebSocketChannel.connect(wsUrl);
       if (!mounted) return;
@@ -111,7 +117,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
 
     if (type == 'history') {
       // One-time batch replay of persisted chat history on (re)connect.
-      final rawMessages = (json['messages'] as List).cast<Map<String, dynamic>>();
+      final rawMessages =
+          (json['messages'] as List).cast<Map<String, dynamic>>();
       final replayed = rawMessages.map((m) {
         final sender = switch (m['type']) {
           'user_message' => MessageSender.user,
@@ -133,7 +140,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
     }
 
     final text = json['text'] as String;
-    final timestamp = DateTime.fromMillisecondsSinceEpoch((json['timestamp'] as int) * 1000);
+    final timestamp =
+        DateTime.fromMillisecondsSinceEpoch((json['timestamp'] as int) * 1000);
 
     setState(() {
       if (type == 'crisis_alert') {
@@ -145,7 +153,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
         _messages.insert(0, ChatMessage(text, MessageSender.ai, timestamp));
       }
     });
-    if (!_userScrolledAway) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
+    if (!_userScrolledAway)
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
   }
 
   void _sendMessage() {
@@ -163,7 +172,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
       _waitingForAI = true;
     });
     _controller.clear();
-    if (!_userScrolledAway) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
+    if (!_userScrolledAway)
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
   }
 
   void _dismissCrisisOverlay() => setState(() => _showCrisisOverlay = false);
@@ -246,7 +256,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
                         padding: const EdgeInsets.only(top: 12),
                         controller: _scrollController,
                         itemCount: _messages.length,
-                        itemBuilder: (context, index) => _buildBubble(_messages[index]),
+                        itemBuilder: (context, index) =>
+                            _buildBubble(_messages[index]),
                       ),
               ),
               if (_waitingForAI) const _ThinkingIndicator(),
@@ -254,7 +265,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
             ],
           ),
           if (_showCrisisOverlay)
-            CrisisOverlay(onDismiss: _dismissCrisisOverlay, message: _crisisMessage),
+            CrisisOverlay(
+                onDismiss: _dismissCrisisOverlay, message: _crisisMessage),
         ],
       ),
     );
@@ -263,7 +275,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
   Widget _buildBubble(ChatMessage msg) {
     final isUser = msg.sender == MessageSender.user;
     final isSystem = msg.sender == MessageSender.system;
-    final alignment = isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final alignment =
+        isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
 
     final Color bg;
     final Color textColor;
@@ -320,12 +333,17 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
               ),
             ),
           Container(
-            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.75),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(color: bg, borderRadius: borderRadius, border: border),
+            decoration: BoxDecoration(
+                color: bg, borderRadius: borderRadius, border: border),
             child: Text(
               msg.text,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: textColor, height: 1.4),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: textColor, height: 1.4),
             ),
           ),
           Padding(
@@ -363,7 +381,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
                   hintText: 'Type how you\'re feeling...',
                   border: InputBorder.none,
                   filled: false,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                 ),
               ),
             ),
@@ -377,7 +396,8 @@ class _ChatScreenState extends State<ChatScreen> implements ChatScreenController
               onTap: _sendMessage,
               child: const Padding(
                 padding: EdgeInsets.all(13),
-                child: Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
+                child: Icon(Icons.arrow_upward_rounded,
+                    color: Colors.white, size: 20),
               ),
             ),
           ),
@@ -432,12 +452,15 @@ class _EmptyChatState extends StatelessWidget {
                     borderRadius: BorderRadius.circular(14),
                     onTap: () => onPromptTap(p),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: AppColors.line),
                       ),
-                      child: Text(p, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+                      child: Text(p,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                          textAlign: TextAlign.center),
                     ),
                   ),
                 ),
@@ -478,7 +501,8 @@ class CrisisOverlay extends StatelessWidget {
   final VoidCallback onDismiss;
   final String message;
 
-  const CrisisOverlay({super.key, required this.onDismiss, required this.message});
+  const CrisisOverlay(
+      {super.key, required this.onDismiss, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -498,7 +522,8 @@ class CrisisOverlay extends StatelessWidget {
               Container(
                 width: 56,
                 height: 56,
-                decoration: BoxDecoration(color: AppColors.alertTint, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                    color: AppColors.alertTint, shape: BoxShape.circle),
                 child: Icon(Icons.favorite, color: AppColors.alert, size: 26),
               ),
               const SizedBox(height: 18),
@@ -510,13 +535,17 @@ class CrisisOverlay extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 message,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.mutedText, height: 1.5),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: AppColors.mutedText, height: 1.5),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(onPressed: onDismiss, child: const Text('I understand')),
+                child: ElevatedButton(
+                    onPressed: onDismiss, child: const Text('I understand')),
               ),
             ],
           ),

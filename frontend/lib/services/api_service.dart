@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../config.dart';
 
 class ApiService {
-  // Set to localhost since we're running as Windows/Chrome desktop, not an
-  // Android emulator (10.0.2.2 is Android-emulator-only).
-  static const baseUrl = 'http://localhost:8080/api';
+  // Set via --dart-define at build time (see config.dart) - defaults to
+  // localhost for local dev, points at the real backend in production
+  // builds without needing any code changes.
+  static String get baseUrl => AppConfig.apiBaseUrl;
   static const _storage = FlutterSecureStorage();
 
   static Future<Map<String, String>> _headers({bool auth = false}) async {
@@ -25,13 +27,16 @@ class ApiService {
     return jsonDecode(body);
   }
 
-  static Future<dynamic> post(String path, Map<String, dynamic> body, {bool auth = true}) async {
+  static Future<dynamic> post(String path, Map<String, dynamic> body,
+      {bool auth = true}) async {
     final uri = Uri.parse('$baseUrl$path');
-    final response = await http.post(uri, headers: await _headers(auth: auth), body: jsonEncode(body));
+    final response = await http.post(uri,
+        headers: await _headers(auth: auth), body: jsonEncode(body));
     if (response.statusCode == 200 || response.statusCode == 201) {
       return _decodeOrNull(response.body);
     } else {
-      throw Exception('Request failed: ${response.statusCode} ${response.body}');
+      throw Exception(
+          'Request failed: ${response.statusCode} ${response.body}');
     }
   }
 
@@ -41,15 +46,18 @@ class ApiService {
     if (response.statusCode == 200) {
       return _decodeOrNull(response.body);
     } else {
-      throw Exception('Request failed: ${response.statusCode} ${response.body}');
+      throw Exception(
+          'Request failed: ${response.statusCode} ${response.body}');
     }
   }
 
   static Future<void> delete(String path, {bool auth = true}) async {
     final uri = Uri.parse('$baseUrl$path');
-    final response = await http.delete(uri, headers: await _headers(auth: auth));
+    final response =
+        await http.delete(uri, headers: await _headers(auth: auth));
     if (response.statusCode != 200 && response.statusCode != 204) {
-      throw Exception('Request failed: ${response.statusCode} ${response.body}');
+      throw Exception(
+          'Request failed: ${response.statusCode} ${response.body}');
     }
   }
 
@@ -58,8 +66,10 @@ class ApiService {
   // The active chat conversation ID, persisted so refreshing the page (or
   // relaunching the app) continues the same thread instead of always
   // starting fresh. Cleared explicitly when the user starts a new chat.
-  static Future<String?> getConversationId() => _storage.read(key: 'conversation_id');
-  static Future<void> setConversationId(String id) => _storage.write(key: 'conversation_id', value: id);
-  static Future<void> clearConversationId() => _storage.delete(key: 'conversation_id');
+  static Future<String?> getConversationId() =>
+      _storage.read(key: 'conversation_id');
+  static Future<void> setConversationId(String id) =>
+      _storage.write(key: 'conversation_id', value: id);
+  static Future<void> clearConversationId() =>
+      _storage.delete(key: 'conversation_id');
 }
-
