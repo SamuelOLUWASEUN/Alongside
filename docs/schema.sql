@@ -1,5 +1,15 @@
--- Enable TimescaleDB
-CREATE EXTENSION IF NOT EXISTS timescaledb;
+-- Enable TimescaleDB if it's available. Not every Postgres host has this
+-- extension (e.g. Railway's default "Database" template is plain Postgres),
+-- so this degrades gracefully to regular tables instead of failing the
+-- whole schema. Locally, docker-compose runs the timescale/timescaledb
+-- image, so this succeeds and mood_entries/sleep_entries below become real
+-- hypertables.
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS timescaledb;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'TimescaleDB extension not available - continuing with plain Postgres tables';
+END $$;
 
 -- Users table
 CREATE TABLE users (
@@ -28,7 +38,7 @@ CREATE TABLE consents (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Mood entries (hypertable for TimescaleDB)
+-- Mood entries (hypertable when TimescaleDB is available)
 CREATE TABLE mood_entries (
     time TIMESTAMPTZ NOT NULL,
     user_id UUID NOT NULL,
@@ -36,9 +46,14 @@ CREATE TABLE mood_entries (
     note TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-SELECT create_hypertable('mood_entries', 'time');
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+        PERFORM create_hypertable('mood_entries', 'time', if_not_exists => TRUE);
+    END IF;
+END $$;
 
--- Sleep entries (hypertable)
+-- Sleep entries (hypertable when TimescaleDB is available)
 CREATE TABLE sleep_entries (
     time TIMESTAMPTZ NOT NULL,
     user_id UUID NOT NULL,
@@ -46,7 +61,12 @@ CREATE TABLE sleep_entries (
     quality INT CHECK (quality BETWEEN 1 AND 5),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-SELECT create_hypertable('sleep_entries', 'time');
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+        PERFORM create_hypertable('sleep_entries', 'time', if_not_exists => TRUE);
+    END IF;
+END $$;
 
 -- Crisis alert logs
 CREATE TABLE crisis_alerts (
