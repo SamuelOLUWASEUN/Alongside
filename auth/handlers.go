@@ -2,7 +2,9 @@ package auth
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -11,7 +13,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var JwtSecret = []byte("change-me-in-production-use-vault")
+// JwtSecret signs and verifies access/refresh tokens. Reads from JWT_SECRET
+// so it's not baked into the binary - falls back to an insecure default for
+// convenience in local dev, but that fallback should never be used anywhere
+// real people's data touches.
+var JwtSecret = loadJwtSecret()
+
+func loadJwtSecret() []byte {
+	if secret := os.Getenv("JWT_SECRET"); secret != "" {
+		return []byte(secret)
+	}
+	log.Println("auth: JWT_SECRET not set - using an insecure development default. Set JWT_SECRET before deploying anywhere real.")
+	return []byte("change-me-in-production-use-vault")
+}
 
 type Credentials struct {
 	Email    string `json:"email"`
