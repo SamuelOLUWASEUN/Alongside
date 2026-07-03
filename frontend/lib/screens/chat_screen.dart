@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/arc_motif.dart';
 import '../config.dart';
+import '../models/conversation_summary.dart';
 
 /// Lets a parent widget (the sidebar) trigger actions on the live
 /// ChatScreen instance kept alive inside the IndexedStack, without needing
@@ -18,7 +19,16 @@ abstract class ChatScreenController {
 
 class ChatScreen extends StatefulWidget {
   final ValueChanged<String>? onConversationChanged;
-  const ChatScreen({super.key, this.onConversationChanged});
+  final List<ConversationSummary> conversations;
+  final bool loadingConversations;
+  final String? activeConversationId;
+  const ChatScreen({
+    super.key,
+    this.onConversationChanged,
+    this.conversations = const [],
+    this.loadingConversations = false,
+    this.activeConversationId,
+  });
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
@@ -220,6 +230,27 @@ class _ChatScreenState extends State<ChatScreen>
 
   void _dismissCrisisOverlay() => setState(() => _showCrisisOverlay = false);
 
+  void _showRecentChats() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => _RecentChatsSheet(
+        conversations: widget.conversations,
+        loading: widget.loadingConversations,
+        activeConversationId: widget.activeConversationId,
+        onSelect: (id) {
+          Navigator.pop(sheetContext);
+          switchToConversation(id);
+        },
+        onNewChat: () {
+          Navigator.pop(sheetContext);
+          startNewChat();
+        },
+      ),
+    );
+  }
+
   @override
   Future<void> startNewChat() async {
     _channelSubscription?.cancel();
@@ -273,6 +304,11 @@ class _ChatScreenState extends State<ChatScreen>
       appBar: AppBar(
         title: const Text('Your coach'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'Recent chats',
+            onPressed: _showRecentChats,
+          ),
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'New chat',
@@ -456,6 +492,142 @@ class _ChatScreenState extends State<ChatScreen>
   }
 }
 
+/// Mobile equivalent of the desktop sidebar's "RECENT CHATS" list - there's
+/// no sidebar on narrow screens, so this is the only way to get back into a
+/// previous conversation there.
+class _RecentChatsSheet extends StatelessWidget {
+  final List<ConversationSummary> conversations;
+  final bool loading;
+  final String? activeConversationId;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onNewChat;
+
+  const _RecentChatsSheet({
+    required this.conversations,
+    required this.loading,
+    required this.activeConversationId,
+    required this.onSelect,
+    required this.onNewChat,
+  });
+
+  String _relativeTime(DateTime t) {
+    final diff = DateTime.now().difference(t);
+    if (diff.inMinutes < 1) return 'now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
+    if (diff.inHours < 24) return '${diff.inHours}h';
+    if (diff.inDays < 7) return '${diff.inDays}d';
+    return DateFormat('MMM d').format(t);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints:
+          BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: AppColors.line,
+                  borderRadius: BorderRadius.circular(2))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 12, 6),
+            child: Row(
+              children: [
+                Expanded(
+                    child: Text('Recent chats',
+                        style: Theme.of(context).textTheme.titleMedium)),
+                TextButton.icon(
+                  onPressed: onNewChat,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('New chat'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Flexible(
+            child: loading
+                ? const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: BreathingArc(size: 22)),
+                  )
+                : conversations.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          'Your chats will show up here.',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: conversations.length,
+                        itemBuilder: (context, i) {
+                          final c = conversations[i];
+                          final selected = c.id == activeConversationId;
+                          return Material(
+                            color: selected
+                                ? AppColors.tideLight
+                                : Colors.transparent,
+                            child: InkWell(
+                              onTap: () => onSelect(c.id),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 20, vertical: 14),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.forum_outlined,
+                                        size: 18,
+                                        color: selected
+                                            ? AppColors.tide
+                                            : AppColors.mutedText),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Text(
+                                        c.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: selected
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w400,
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(_relativeTime(c.lastAt),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
 /// Shown instead of a blank screen when a conversation has no messages yet -
 /// a warm greeting plus a few example prompts, so the first thing someone
 /// sees isn't just empty white space.
@@ -522,7 +694,7 @@ class _EmptyChatState extends StatelessWidget {
   }
 }
 
-/// Small "InnerArc is thinking..." row shown between sending a message and
+/// Small "Alongside is thinking..." row shown between sending a message and
 /// receiving the AI's reply - uses the arc motif rather than a generic spinner.
 class _ThinkingIndicator extends StatelessWidget {
   const _ThinkingIndicator();

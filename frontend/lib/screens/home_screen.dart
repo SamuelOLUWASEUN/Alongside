@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../widgets/arc_motif.dart';
 import '../widgets/sign_out_dialog.dart';
 import '../widgets/profile_sheet.dart';
+import '../models/conversation_summary.dart';
 
 /// Below this width we use the floating pill bottom nav (phone pattern);
 /// at or above it we switch to a sidebar (desktop/tablet pattern). One
@@ -26,13 +27,6 @@ const _tabVault = 3;
 const _tabSettings = 4;
 
 typedef _NavItem = ({IconData icon, IconData activeIcon, String label});
-
-class _Conversation {
-  final String id;
-  final String title;
-  final DateTime lastAt;
-  _Conversation(this.id, this.title, this.lastAt);
-}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -52,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _streak = 0;
 
   String? _activeConversationId;
-  List<_Conversation> _conversations = [];
+  List<ConversationSummary> _conversations = [];
   bool _loadingConversations = true;
 
   static const List<_NavItem> _items = [
@@ -75,7 +69,13 @@ class _HomeScreenState extends State<HomeScreen> {
         onMoodLogged: _refreshMoodSnapshot,
         onNavigate: (i) => setState(() => _currentIndex = i),
       ),
-      ChatScreen(key: _chatKey, onConversationChanged: _onConversationChanged),
+      ChatScreen(
+        key: _chatKey,
+        onConversationChanged: _onConversationChanged,
+        conversations: _conversations,
+        loadingConversations: _loadingConversations,
+        activeConversationId: _activeConversationId,
+      ),
       const MoodScreen(),
       const VaultScreen(),
       const SettingsScreen(),
@@ -92,7 +92,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refreshStreak() async {
     try {
-      final data = await ApiService.get('/mood/streak') as Map<String, dynamic>?;
+      final data =
+          await ApiService.get('/mood/streak') as Map<String, dynamic>?;
       if (!mounted) return;
       setState(() {
         _streak = (data?['streak'] as num?)?.toInt() ?? 0;
@@ -105,12 +106,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refreshMoodSnapshot() async {
     try {
-      final data = await ApiService.get('/mood/history?days=7') as List<dynamic>?;
+      final data =
+          await ApiService.get('/mood/history?days=7') as List<dynamic>?;
       if (!mounted) return;
       if (data != null && data.isNotEmpty) {
         setState(() {
           _latestMoodScore = (data.first['score'] as num).toDouble();
-          _latestMoodTime = DateTime.tryParse(data.first['time'] as String)?.toLocal();
+          _latestMoodTime =
+              DateTime.tryParse(data.first['time'] as String)?.toLocal();
           _loadingMood = false;
           _rebuildTodayScreen();
         });
@@ -145,21 +148,39 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refreshConversations() async {
     try {
-      final data = await ApiService.get('/chat/conversations') as List<dynamic>?;
+      final data =
+          await ApiService.get('/chat/conversations') as List<dynamic>?;
       if (!mounted) return;
       setState(() {
         _conversations = (data ?? [])
-            .map((c) => _Conversation(
+            .map((c) => ConversationSummary(
                   c['id'] as String,
-                  (c['title'] as String).trim().isEmpty ? 'New chat' : c['title'] as String,
+                  (c['title'] as String).trim().isEmpty
+                      ? 'New chat'
+                      : c['title'] as String,
                   DateTime.parse(c['last_at'] as String).toLocal(),
                 ))
             .toList();
         _loadingConversations = false;
+        _rebuildChatScreen();
       });
     } catch (_) {
       if (mounted) setState(() => _loadingConversations = false);
     }
+  }
+
+  // ChatScreen takes the conversation list as constructor params (same
+  // pattern as TodayScreen's mood data) so both the desktop sidebar and the
+  // mobile "recent chats" sheet inside ChatScreen itself read from one
+  // shared source of truth instead of fetching their own separate copies.
+  void _rebuildChatScreen() {
+    _screens[_tabChat] = ChatScreen(
+      key: _chatKey,
+      onConversationChanged: _onConversationChanged,
+      conversations: _conversations,
+      loadingConversations: _loadingConversations,
+      activeConversationId: _activeConversationId,
+    );
   }
 
   void _onNavSelect(int index) {
@@ -177,6 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _currentIndex = _tabChat;
       _activeConversationId = id;
+      _rebuildChatScreen();
     });
     (_chatKey.currentState as ChatScreenController?)?.switchToConversation(id);
   }
@@ -203,7 +225,8 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 _Sidebar(
                   collapsed: _sidebarCollapsed,
-                  onToggleCollapse: () => setState(() => _sidebarCollapsed = !_sidebarCollapsed),
+                  onToggleCollapse: () =>
+                      setState(() => _sidebarCollapsed = !_sidebarCollapsed),
                   currentIndex: _currentIndex,
                   items: _items,
                   latestMoodScore: _latestMoodScore,
@@ -225,7 +248,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Listener(
                     behavior: HitTestBehavior.translucent,
                     onPointerDown: (_) => _collapseSidebarIfExpanded(),
-                    child: IndexedStack(index: _currentIndex, children: _screens),
+                    child:
+                        IndexedStack(index: _currentIndex, children: _screens),
                   ),
                 ),
               ],
@@ -265,10 +289,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       onLongPress: i == _tabChat ? _handleNewChat : null,
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
+                        margin: const EdgeInsets.symmetric(
+                            vertical: 10, horizontal: 2),
                         padding: const EdgeInsets.symmetric(horizontal: 2),
                         decoration: BoxDecoration(
-                          color: selected ? Colors.white.withOpacity(0.14) : Colors.transparent,
+                          color: selected
+                              ? Colors.white.withOpacity(0.14)
+                              : Colors.transparent,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Column(
@@ -276,7 +303,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: [
                             Icon(
                               selected ? item.activeIcon : item.icon,
-                              color: selected ? AppColors.ember : Colors.white70,
+                              color:
+                                  selected ? AppColors.ember : Colors.white70,
                               size: 20,
                             ),
                             const SizedBox(height: 3),
@@ -323,7 +351,7 @@ class _Sidebar extends StatelessWidget {
   final DateTime? latestMoodTime;
   final bool loadingMood;
   final String? activeConversationId;
-  final List<_Conversation> conversations;
+  final List<ConversationSummary> conversations;
   final bool loadingConversations;
   final ValueChanged<int> onSelect;
   final VoidCallback onNewChat;
@@ -376,276 +404,343 @@ class _Sidebar extends StatelessWidget {
       curve: Curves.easeInOut,
       width: collapsed ? 76 : 264,
       color: AppColors.harbor,
-      padding: EdgeInsets.symmetric(horizontal: collapsed ? 12 : 18, vertical: 24),
+      padding:
+          EdgeInsets.symmetric(horizontal: collapsed ? 12 : 18, vertical: 24),
       child: ClipRect(
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: collapsed ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
-            children: [
-              if (!collapsed)
-                Expanded(
-                  child: Row(
-                    children: [
-                      const ArcMotif(size: 30, strokeWidth: 4),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          'Alongside',
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white, fontSize: 19),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: collapsed
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.spaceBetween,
+              children: [
+                if (!collapsed)
+                  Expanded(
+                    child: Row(
+                      children: [
+                        const ArcMotif(size: 30, strokeWidth: 4),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            'Alongside',
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(color: Colors.white, fontSize: 19),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  )
+                else
+                  const ArcMotif(size: 26, strokeWidth: 4),
+                if (!collapsed)
+                  IconButton(
+                    onPressed: onToggleCollapse,
+                    tooltip: 'Collapse sidebar',
+                    icon: const Icon(Icons.chevron_left,
+                        color: Colors.white54, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                   ),
-                )
-              else
-                const ArcMotif(size: 26, strokeWidth: 4),
-              if (!collapsed)
-                IconButton(
+              ],
+            ),
+            if (collapsed) ...[
+              const SizedBox(height: 12),
+              Center(
+                child: IconButton(
                   onPressed: onToggleCollapse,
-                  tooltip: 'Collapse sidebar',
-                  icon: const Icon(Icons.chevron_left, color: Colors.white54, size: 20),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
+                  tooltip: 'Expand sidebar',
+                  icon: const Icon(Icons.chevron_right,
+                      color: Colors.white54, size: 20),
                 ),
+              ),
             ],
-          ),
-          if (collapsed) ...[
-            const SizedBox(height: 12),
-            Center(
-              child: IconButton(
-                onPressed: onToggleCollapse,
-                tooltip: 'Expand sidebar',
-                icon: const Icon(Icons.chevron_right, color: Colors.white54, size: 20),
-              ),
-            ),
-          ],
-          const SizedBox(height: 20),
-          // New chat
-          Material(
-            color: Colors.white.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(14),
-            child: InkWell(
+            const SizedBox(height: 20),
+            // New chat
+            Material(
+              color: Colors.white.withOpacity(0.08),
               borderRadius: BorderRadius.circular(14),
-              onTap: onNewChat,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 14, vertical: 13),
-                child: collapsed
-                    ? const Icon(Icons.edit_outlined, color: Colors.white, size: 18)
-                    : const Row(
-                        children: [
-                          Icon(Icons.edit_outlined, color: Colors.white, size: 18),
-                          SizedBox(width: 10),
-                          Text('New chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
-                        ],
-                      ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: onNewChat,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: collapsed ? 0 : 14, vertical: 13),
+                  child: collapsed
+                      ? const Icon(Icons.edit_outlined,
+                          color: Colors.white, size: 18)
+                      : const Row(
+                          children: [
+                            Icon(Icons.edit_outlined,
+                                color: Colors.white, size: 18),
+                            SizedBox(width: 10),
+                            Text('New chat',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14)),
+                          ],
+                        ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 18),
-          // Nav
-          ...List.generate(items.length, (i) {
-            final selected = i == currentIndex;
-            final item = items[i];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Material(
-                color: selected ? Colors.white.withOpacity(0.12) : Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
-                child: InkWell(
+            const SizedBox(height: 18),
+            // Nav
+            ...List.generate(items.length, (i) {
+              final selected = i == currentIndex;
+              final item = items[i];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Material(
+                  color: selected
+                      ? Colors.white.withOpacity(0.12)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
-                  onTap: () => onSelect(i),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 12, vertical: 12),
-                    child: collapsed
-                        ? Icon(
-                            selected ? item.activeIcon : item.icon,
-                            size: 20,
-                            color: selected ? AppColors.ember : Colors.white70,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => onSelect(i),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                          horizontal: collapsed ? 0 : 12, vertical: 12),
+                      child: collapsed
+                          ? Icon(
+                              selected ? item.activeIcon : item.icon,
+                              size: 20,
+                              color:
+                                  selected ? AppColors.ember : Colors.white70,
+                            )
+                          : Row(
+                              children: [
+                                Icon(
+                                  selected ? item.activeIcon : item.icon,
+                                  size: 19,
+                                  color: selected
+                                      ? AppColors.ember
+                                      : Colors.white70,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  item.label,
+                                  style: TextStyle(
+                                    color: selected
+                                        ? Colors.white
+                                        : Colors.white70,
+                                    fontWeight: selected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+            if (!collapsed) ...[
+              const SizedBox(height: 20),
+              Text(
+                'RECENT CHATS',
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.4),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5),
+              ),
+              const SizedBox(height: 6),
+              Expanded(
+                child: loadingConversations
+                    ? const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: BreathingArc(size: 16),
+                      )
+                    : conversations.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Your chats will show up here.',
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.4),
+                                  fontSize: 12),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: EdgeInsets.zero,
+                            itemCount: conversations.length,
+                            itemBuilder: (context, i) {
+                              final c = conversations[i];
+                              final selected = c.id == activeConversationId;
+                              return Material(
+                                color: selected
+                                    ? Colors.white.withOpacity(0.1)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(10),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: () => onSelectConversation(c.id),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 9),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            c.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: selected
+                                                  ? Colors.white
+                                                  : Colors.white70,
+                                              fontSize: 12.5,
+                                              fontWeight: selected
+                                                  ? FontWeight.w600
+                                                  : FontWeight.w400,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _relativeTime(c.lastAt),
+                                          style: TextStyle(
+                                              color: Colors.white
+                                                  .withOpacity(0.35),
+                                              fontSize: 10.5),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+              ),
+            ] else
+              const Spacer(),
+            const SizedBox(height: 14),
+            // Live mood snapshot
+            if (!collapsed)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: loadingMood
+                    ? const SizedBox(
+                        height: 20,
+                        child: Center(child: BreathingArc(size: 18)),
+                      )
+                    : latestMoodScore == null
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'No check-in yet',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.85),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "See how you're doing",
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.5),
+                                    fontSize: 12),
+                              ),
+                            ],
                           )
                         : Row(
                             children: [
-                              Icon(
-                                selected ? item.activeIcon : item.icon,
-                                size: 19,
-                                color: selected ? AppColors.ember : Colors.white70,
-                              ),
-                              const SizedBox(width: 12),
                               Text(
-                                item.label,
-                                style: TextStyle(
-                                  color: selected ? Colors.white : Colors.white70,
-                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                                  fontSize: 14,
+                                latestMoodScore!.toStringAsFixed(0),
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w700),
+                              ),
+                              Text('/10',
+                                  style: TextStyle(
+                                      color: Colors.white.withOpacity(0.5),
+                                      fontSize: 13)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Latest check-in',
+                                      style: TextStyle(
+                                          color: Colors.white.withOpacity(0.85),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                    Text(
+                                      _moodTimeLabel(),
+                                      style: TextStyle(
+                                          color: Colors.white.withOpacity(0.5),
+                                          fontSize: 11),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
+              ),
+            const SizedBox(height: 14),
+            const Divider(color: Colors.white24, height: 1),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: collapsed
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.start,
+              children: [
+                InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () => showProfileSheet(context,
+                      onGoToSettings: () => onSelect(_tabSettings)),
+                  child: CircleAvatar(
+                    radius: 15,
+                    backgroundColor: AppColors.tide,
+                    child: Text(
+                      (auth.email ?? '?').isNotEmpty
+                          ? auth.email![0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ),
-              ),
-            );
-          }),
-          if (!collapsed) ...[
-            const SizedBox(height: 20),
-            Text(
-              'RECENT CHATS',
-              style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5),
-            ),
-            const SizedBox(height: 6),
-            Expanded(
-              child: loadingConversations
-                  ? const Padding(
-                      padding: EdgeInsets.only(top: 12),
-                      child: BreathingArc(size: 16),
-                    )
-                  : conversations.isEmpty
-                      ? Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            'Your chats will show up here.',
-                            style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: EdgeInsets.zero,
-                          itemCount: conversations.length,
-                          itemBuilder: (context, i) {
-                            final c = conversations[i];
-                            final selected = c.id == activeConversationId;
-                            return Material(
-                              color: selected ? Colors.white.withOpacity(0.1) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(10),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(10),
-                                onTap: () => onSelectConversation(c.id),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          c.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: selected ? Colors.white : Colors.white70,
-                                            fontSize: 12.5,
-                                            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _relativeTime(c.lastAt),
-                                        style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 10.5),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-            ),
-          ] else
-            const Spacer(),
-          const SizedBox(height: 14),
-          // Live mood snapshot
-          if (!collapsed)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: loadingMood
-                  ? const SizedBox(
-                      height: 20,
-                      child: Center(child: BreathingArc(size: 18)),
-                    )
-                  : latestMoodScore == null
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'No check-in yet',
-                              style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 13, fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              "See how you're doing",
-                              style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
-                            ),
-                          ],
-                        )
-                      : Row(
-                          children: [
-                            Text(
-                              latestMoodScore!.toStringAsFixed(0),
-                              style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700),
-                            ),
-                            Text('/10', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13)),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Latest check-in',
-                                    style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 12, fontWeight: FontWeight.w600),
-                                  ),
-                                  Text(
-                                    _moodTimeLabel(),
-                                    style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-            ),
-          const SizedBox(height: 14),
-          const Divider(color: Colors.white24, height: 1),
-          const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
-            children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: () => showProfileSheet(context, onGoToSettings: () => onSelect(_tabSettings)),
-                child: CircleAvatar(
-                  radius: 15,
-                  backgroundColor: AppColors.tide,
-                  child: Text(
-                    (auth.email ?? '?').isNotEmpty ? auth.email![0].toUpperCase() : '?',
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                if (!collapsed) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      auth.email ?? '',
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
                   ),
-                ),
-              ),
-              if (!collapsed) ...[
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    auth.email ?? '',
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  IconButton(
+                    onPressed: onSignOut,
+                    tooltip: 'Sign out',
+                    icon: const Icon(Icons.logout,
+                        color: Colors.white54, size: 18),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                   ),
-                ),
-                IconButton(
-                  onPressed: onSignOut,
-                  tooltip: 'Sign out',
-                  icon: const Icon(Icons.logout, color: Colors.white54, size: 18),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
+                ],
               ],
-            ],
-          ),
-        ],
-      ),
+            ),
+          ],
+        ),
       ),
     );
   }
