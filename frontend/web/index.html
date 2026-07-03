@@ -40,6 +40,12 @@
   </div>
 </div>
 <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+<script>
+  window.addEventListener('flutter-first-frame', function () {
+    var splash = document.getElementById('splash');
+    if (splash) splash.remove();
+  });
+</script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
