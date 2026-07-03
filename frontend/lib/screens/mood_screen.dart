@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/mood_face.dart';
 
 class MoodScreen extends StatefulWidget {
   const MoodScreen({super.key});
@@ -44,7 +45,8 @@ class _MoodScreenState extends State<MoodScreen> {
   Future<void> _loadHistory() async {
     setState(() => _loadingHistory = true);
     try {
-      final data = await ApiService.get('/mood/history?days=14') as List<dynamic>?;
+      final data =
+          await ApiService.get('/mood/history?days=14') as List<dynamic>?;
       if (!mounted) return;
       final entries = (data ?? [])
           .map((e) => _MoodEntry(
@@ -52,7 +54,8 @@ class _MoodScreenState extends State<MoodScreen> {
                 (e['score'] as num).toDouble(),
               ))
           .toList()
-        ..sort((a, b) => a.time.compareTo(b.time)); // oldest first for the chart
+        ..sort(
+            (a, b) => a.time.compareTo(b.time)); // oldest first for the chart
       setState(() {
         _history = entries;
         _loadingHistory = false;
@@ -67,12 +70,14 @@ class _MoodScreenState extends State<MoodScreen> {
     try {
       await ApiService.post('/mood/log', {'score': _score.round()});
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Check-in saved')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Check-in saved')));
       }
       await _loadHistory();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -136,23 +141,39 @@ class _CheckInCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('How are you feeling right now?', style: Theme.of(context).textTheme.titleMedium),
+          Text('How are you feeling right now?',
+              style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 18),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                score.round().toString(),
-                style: Theme.of(context).textTheme.displayLarge?.copyWith(color: _scoreColor()),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8, left: 4),
-                child: Text('/10', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.mutedText)),
-              ),
-              const SizedBox(width: 12),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+              MoodFace(score: score, size: 56),
+              const SizedBox(width: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    score.round().toString(),
+                    style: Theme.of(context)
+                        .textTheme
+                        .displayLarge
+                        ?.copyWith(color: _scoreColor()),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8, left: 4),
+                    child: Text('/10',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(color: AppColors.mutedText)),
+                  ),
+                  const SizedBox(width: 12),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Text(label,
+                        style: Theme.of(context).textTheme.bodyMedium),
+                  ),
+                ],
               ),
             ],
           ),
@@ -182,7 +203,8 @@ class _CheckInCard extends StatelessWidget {
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.4, color: Colors.white),
                     )
                   : const Text('Save check-in'),
             ),
@@ -240,7 +262,8 @@ class _MoodLineChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final spots = <FlSpot>[
-      for (int i = 0; i < history.length; i++) FlSpot(i.toDouble(), history[i].score),
+      for (int i = 0; i < history.length; i++)
+        FlSpot(i.toDouble(), history[i].score),
     ];
 
     return LineChart(
@@ -251,11 +274,14 @@ class _MoodLineChart extends StatelessWidget {
           show: true,
           drawVerticalLine: false,
           horizontalInterval: 2.5,
-          getDrawingHorizontalLine: (_) => FlLine(color: AppColors.line, strokeWidth: 1),
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: AppColors.line, strokeWidth: 1),
         ),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -271,10 +297,13 @@ class _MoodLineChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 22,
-              interval: (history.length / 4).clamp(1, double.infinity).roundToDouble(),
+              interval: (history.length / 4)
+                  .clamp(1, double.infinity)
+                  .roundToDouble(),
               getTitlesWidget: (value, meta) {
                 final i = value.toInt();
-                if (i < 0 || i >= history.length) return const SizedBox.shrink();
+                if (i < 0 || i >= history.length)
+                  return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
@@ -295,13 +324,19 @@ class _MoodLineChart extends StatelessWidget {
             barWidth: 3,
             dotData: FlDotData(
               show: true,
-              getDotPainter: (spot, percent, bar, index) =>
-                  FlDotCirclePainter(radius: 3, color: AppColors.tide, strokeWidth: 2, strokeColor: AppColors.surface),
+              getDotPainter: (spot, percent, bar, index) => FlDotCirclePainter(
+                  radius: 3,
+                  color: AppColors.tide,
+                  strokeWidth: 2,
+                  strokeColor: AppColors.surface),
             ),
             belowBarData: BarAreaData(
               show: true,
               gradient: LinearGradient(
-                colors: [AppColors.tide.withOpacity(0.18), AppColors.tide.withOpacity(0.0)],
+                colors: [
+                  AppColors.tide.withOpacity(0.18),
+                  AppColors.tide.withOpacity(0.0)
+                ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
               ),

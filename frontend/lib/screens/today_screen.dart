@@ -3,6 +3,7 @@ import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/arc_motif.dart';
 import '../widgets/centered_page.dart';
+import '../widgets/mood_face.dart';
 
 /// The new landing screen after login - a warm overview instead of dropping
 /// straight into an empty chat. Ties together a greeting, today's mood (or
@@ -54,11 +55,13 @@ class _TodayScreenState extends State<TodayScreen> {
       await ApiService.post('/mood/log', {'score': _quickScore.round()});
       widget.onMoodLogged();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Check-in saved')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Check-in saved')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _logging = false);
@@ -79,15 +82,18 @@ class _TodayScreenState extends State<TodayScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(_greeting(), style: Theme.of(context).textTheme.displayMedium),
+                    Text(_greeting(),
+                        style: Theme.of(context).textTheme.displayMedium),
                     const SizedBox(height: 2),
-                    Text("Here's your space for today.", style: Theme.of(context).textTheme.labelSmall),
+                    Text("Here's your space for today.",
+                        style: Theme.of(context).textTheme.labelSmall),
                   ],
                 ),
               ),
               if (widget.streak >= 2)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   decoration: BoxDecoration(
                     color: AppColors.tideLight,
                     borderRadius: BorderRadius.circular(20),
@@ -99,7 +105,10 @@ class _TodayScreenState extends State<TodayScreen> {
                       const SizedBox(width: 5),
                       Text(
                         '${widget.streak}-day streak',
-                        style: TextStyle(color: AppColors.tide, fontSize: 12, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                            color: AppColors.tide,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700),
                       ),
                     ],
                   ),
@@ -123,21 +132,38 @@ class _TodayScreenState extends State<TodayScreen> {
                     ? Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text("Today's check-in", style: Theme.of(context).textTheme.titleMedium),
+                          Text("Today's check-in",
+                              style: Theme.of(context).textTheme.titleMedium),
                           const SizedBox(height: 10),
                           Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Text(
-                                widget.latestMoodScore!.toStringAsFixed(0),
-                                style: Theme.of(context).textTheme.displayLarge?.copyWith(color: AppColors.tide),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8, left: 4),
-                                child: Text(
-                                  '/10',
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.mutedText),
-                                ),
+                              MoodFace(
+                                  score: widget.latestMoodScore!, size: 48),
+                              const SizedBox(width: 14),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    widget.latestMoodScore!.toStringAsFixed(0),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .displayLarge
+                                        ?.copyWith(color: AppColors.tide),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                        bottom: 8, left: 4),
+                                    child: Text(
+                                      '/10',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                              color: AppColors.mutedText),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -150,7 +176,17 @@ class _TodayScreenState extends State<TodayScreen> {
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('How are you feeling right now?', style: Theme.of(context).textTheme.titleMedium),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text('How are you feeling right now?',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium),
+                              ),
+                              MoodFace(score: _quickScore, size: 40),
+                            ],
+                          ),
                           const SizedBox(height: 10),
                           Slider(
                             value: _quickScore,
@@ -169,7 +205,8 @@ class _TodayScreenState extends State<TodayScreen> {
                                   ? const SizedBox(
                                       width: 18,
                                       height: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2, color: Colors.white),
                                     )
                                   : const Text('Save check-in'),
                             ),
@@ -194,16 +231,23 @@ class _TodayScreenState extends State<TodayScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Talk to your coach', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.white)),
+                          Text('Talk to your coach',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(color: Colors.white)),
                           const SizedBox(height: 3),
                           Text(
                             "Whenever you're ready, I'm here.",
-                            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12.5),
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 12.5),
                           ),
                         ],
                       ),
                     ),
-                    const Icon(Icons.arrow_forward_rounded, color: Colors.white70),
+                    const Icon(Icons.arrow_forward_rounded,
+                        color: Colors.white70),
                   ],
                 ),
               ),
@@ -212,9 +256,17 @@ class _TodayScreenState extends State<TodayScreen> {
           const SizedBox(height: 16),
           Row(
             children: [
-              Expanded(child: _QuickAction(icon: Icons.lock_outline, label: 'Vault', onTap: () => widget.onNavigate(3))),
+              Expanded(
+                  child: _QuickAction(
+                      icon: Icons.lock_outline,
+                      label: 'Vault',
+                      onTap: () => widget.onNavigate(3))),
               const SizedBox(width: 12),
-              Expanded(child: _QuickAction(icon: Icons.insights_outlined, label: 'Mood trend', onTap: () => widget.onNavigate(2))),
+              Expanded(
+                  child: _QuickAction(
+                      icon: Icons.insights_outlined,
+                      label: 'Mood trend',
+                      onTap: () => widget.onNavigate(2))),
             ],
           ),
         ],
@@ -227,7 +279,8 @@ class _QuickAction extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const _QuickAction({required this.icon, required this.label, required this.onTap});
+  const _QuickAction(
+      {required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -238,7 +291,9 @@ class _QuickAction extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Container(
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: AppColors.line)),
+          decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.line)),
           padding: const EdgeInsets.symmetric(vertical: 18),
           child: Column(
             children: [
