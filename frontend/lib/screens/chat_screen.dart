@@ -571,10 +571,9 @@ class CrisisOverlay extends StatelessWidget {
               Container(
                 width: 56,
                 height: 56,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                     color: AppColors.alertTint, shape: BoxShape.circle),
-                child: const Icon(Icons.favorite,
-                    color: AppColors.alert, size: 26),
+                child: Icon(Icons.favorite, color: AppColors.alert, size: 26),
               ),
               const SizedBox(height: 18),
               Text(
