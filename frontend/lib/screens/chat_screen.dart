@@ -77,7 +77,7 @@ class _ChatScreenState extends State<ChatScreen>
         ? '&conversation=$storedConversationId'
         : '';
     final wsUrl =
-        final wsUrl = Uri.parse(AppConfig.wsUrl('/ws/chat?token=$token$conversationParam'));
+        Uri.parse(AppConfig.wsUrl('/ws/chat?token=$token$conversationParam'));
     try {
       _channel = WebSocketChannel.connect(wsUrl);
       if (!mounted) return;
