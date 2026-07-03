@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/yourorg/innerarc-core/ai"
+	"github.com/yourorg/innerarc-core/config"
 	"github.com/yourorg/innerarc-core/db"
 	"github.com/yourorg/innerarc-core/safety"
 )
@@ -27,7 +28,9 @@ const (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true }, // tighten in production
+	CheckOrigin: func(r *http.Request) bool {
+		return config.IsAllowedOrigin(r.Header.Get("Origin"))
+	},
 }
 
 type Message struct {

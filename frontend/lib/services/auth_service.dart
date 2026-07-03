@@ -48,6 +48,17 @@ class AuthService with ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // Revoke both tokens server-side so they can't be reused even before
+    // their natural expiry - but never let this block actually signing out
+    // locally, since that would be a much worse outcome than a token
+    // staying valid a few extra minutes if the network call fails.
+    try {
+      final refreshToken = await _storage.read(key: 'refresh_token');
+      await ApiService.post(
+          '/auth/logout', {'refresh_token': refreshToken ?? ''});
+    } catch (_) {
+      // Offline, server unreachable, etc. - proceed with local logout anyway.
+    }
     await _storage.deleteAll();
     _accessToken = null;
     _email = null;

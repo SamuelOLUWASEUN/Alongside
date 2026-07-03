@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -111,3 +112,28 @@ func generateToken(userID, tokenType string, duration time.Duration) (string, er
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(JwtSecret)
 }
+
+// Logout blacklists the access token used to call it (so it can't be reused
+// even though it hasn't naturally expired yet), and - if the client sends
+// one - the refresh token too, so a full sign-out actually revokes both
+// rather than leaving the access token quietly valid until its 15-minute
+// natural expiry.
+func Logout(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+	if tokenStr != "" {
+		redis.Client.Set(r.Context(), "blacklist:"+tokenStr, "revoked", 15*time.Minute)
+	}
+
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	// Body is optional - decode errors here just mean no refresh token was
+	// sent, which is fine; the access token above is still revoked either way.
+	if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.RefreshToken != "" {
+		redis.Client.Set(r.Context(), "blacklist:"+body.RefreshToken, "revoked", 7*24*time.Hour)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+

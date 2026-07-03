@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/yourorg/innerarc-core/ai"
@@ -19,13 +20,18 @@ import (
 	"github.com/yourorg/innerarc-core/vault"
 )
 
-// corsMiddleware allows the Flutter web build (served from a different
-// localhost port during development) to call this API from the browser.
-// Tighten Access-Control-Allow-Origin to your actual frontend origin(s)
-// before deploying anywhere real.
+// corsMiddleware only allows requests from known frontend origins, rather
+// than "*" (any website). Being on an allowlist doesn't let a request read
+// another user's data - every protected route still separately requires a
+// valid bearer token for that specific user - this just stops arbitrary
+// third-party sites from being able to call the API at all.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if config.IsAllowedOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
@@ -53,14 +59,16 @@ func main() {
 	}).Methods("GET")
 
 	// Public routes
-	r.HandleFunc("/api/auth/register", auth.Register).Methods("POST")
-	r.HandleFunc("/api/auth/login", auth.Login).Methods("POST")
+	r.Handle("/api/auth/register", auth.RateLimit(5, 15*time.Minute)(http.HandlerFunc(auth.Register))).Methods("POST")
+	r.Handle("/api/auth/login", auth.RateLimit(10, 15*time.Minute)(http.HandlerFunc(auth.Login))).Methods("POST")
 	r.HandleFunc("/api/auth/refresh", auth.RefreshToken).Methods("POST")
 	r.HandleFunc("/api/crisis/helplines", crisis.GetHelplines).Methods("GET")
 
 	// Protected routes
 	protected := r.PathPrefix("/api").Subrouter()
 	protected.Use(auth.JWTMiddleware)
+
+	protected.HandleFunc("/auth/logout", auth.Logout).Methods("POST")
 
 	protected.HandleFunc("/consent/grant", consent.Grant).Methods("POST")
 	protected.HandleFunc("/consent/status", consent.Status).Methods("GET")
