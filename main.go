@@ -1,0 +1,89 @@
+package main
+
+import (
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/gorilla/mux"
+	"github.com/yourorg/innerarc-core/ai"
+	"github.com/yourorg/innerarc-core/auth"
+	"github.com/yourorg/innerarc-core/chat"
+	"github.com/yourorg/innerarc-core/config"
+	"github.com/yourorg/innerarc-core/consent"
+	"github.com/yourorg/innerarc-core/crisis"
+	"github.com/yourorg/innerarc-core/db"
+	"github.com/yourorg/innerarc-core/export"
+	"github.com/yourorg/innerarc-core/mood"
+	"github.com/yourorg/innerarc-core/redis"
+	"github.com/yourorg/innerarc-core/vault"
+)
+
+// corsMiddleware allows the Flutter web build (served from a different
+// localhost port during development) to call this API from the browser.
+// Tighten Access-Control-Allow-Origin to your actual frontend origin(s)
+// before deploying anywhere real.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func main() {
+	cfg := config.Load()
+	db.Connect(cfg.DatabaseURL)
+	redis.Connect(cfg.RedisURL)
+	ai.Init()
+	defer db.Close()
+	defer redis.Close()
+
+	r := mux.NewRouter()
+
+	// Health check (for Docker/K8s probes and manual checks)
+	r.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}).Methods("GET")
+
+	// Public routes
+	r.HandleFunc("/api/auth/register", auth.Register).Methods("POST")
+	r.HandleFunc("/api/auth/login", auth.Login).Methods("POST")
+	r.HandleFunc("/api/auth/refresh", auth.RefreshToken).Methods("POST")
+	r.HandleFunc("/api/crisis/helplines", crisis.GetHelplines).Methods("GET")
+
+	// Protected routes
+	protected := r.PathPrefix("/api").Subrouter()
+	protected.Use(auth.JWTMiddleware)
+
+	protected.HandleFunc("/consent/grant", consent.Grant).Methods("POST")
+	protected.HandleFunc("/consent/status", consent.Status).Methods("GET")
+	protected.HandleFunc("/mood/log", mood.LogMood).Methods("POST")
+	protected.HandleFunc("/mood/history", mood.MoodHistory).Methods("GET")
+	protected.HandleFunc("/mood/streak", mood.GetStreak).Methods("GET")
+	protected.HandleFunc("/sleep/log", mood.LogSleep).Methods("POST")
+	protected.HandleFunc("/sleep/history", mood.SleepHistory).Methods("GET")
+	protected.HandleFunc("/crisis/alert", crisis.TriggerAlert).Methods("POST")
+	protected.HandleFunc("/vault", vault.GetItems).Methods("GET")
+	protected.HandleFunc("/vault", vault.CreateItem).Methods("POST")
+	protected.HandleFunc("/vault/{id}", vault.UpdateItem).Methods("PUT")
+	protected.HandleFunc("/vault/{id}", vault.DeleteItem).Methods("DELETE")
+	protected.HandleFunc("/export", export.FullExport).Methods("GET")
+	protected.HandleFunc("/chat/conversations", chat.ListConversations).Methods("GET")
+
+	// WebSocket chat (token in query)
+	r.HandleFunc("/ws/chat", chat.ServeWs)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("Alongside Core listening on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(r)))
+}
