@@ -10,6 +10,8 @@ import '../widgets/crisis_resources.dart';
 import '../widgets/sign_out_dialog.dart';
 import '../widgets/profile_sheet.dart';
 import '../services/theme_controller.dart';
+import '../services/lock_service.dart';
+import '../widgets/pin_setup_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -19,6 +21,36 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _exporting = false;
+  bool _checkingLock = true;
+  bool _lockEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLockState();
+  }
+
+  Future<void> _loadLockState() async {
+    final enabled = await LockService.isEnabled();
+    if (mounted)
+      setState(() {
+        _lockEnabled = enabled;
+        _checkingLock = false;
+      });
+  }
+
+  Future<void> _toggleLock(bool wantEnabled) async {
+    if (wantEnabled) {
+      final success = await showPinSetupDialog(context);
+      if (success && mounted) setState(() => _lockEnabled = true);
+    } else {
+      final confirmed = await showPinConfirmDialog(context);
+      if (confirmed) {
+        await LockService.disable();
+        if (mounted) setState(() => _lockEnabled = false);
+      }
+    }
+  }
 
   Future<void> _exportData() async {
     setState(() => _exporting = true);
@@ -46,14 +78,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await showDialog(
         context: context,
         builder: (dialogContext) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Your data at a glance', style: Theme.of(dialogContext).textTheme.headlineSmall),
+                Text('Your data at a glance',
+                    style: Theme.of(dialogContext).textTheme.headlineSmall),
                 const SizedBox(height: 16),
                 if (moods.isEmpty)
                   Text(
@@ -61,12 +95,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: Theme.of(dialogContext).textTheme.bodyMedium,
                   )
                 else ...[
-                  _ExportStatRow(label: 'Mood check-ins', value: '${moods.length}'),
-                  if (avg != null) _ExportStatRow(label: 'Average mood', value: '$avg / 10'),
+                  _ExportStatRow(
+                      label: 'Mood check-ins', value: '${moods.length}'),
+                  if (avg != null)
+                    _ExportStatRow(label: 'Average mood', value: '$avg / 10'),
                   if (earliest != null && latest != null)
                     _ExportStatRow(
                       label: 'Date range',
-                      value: '${DateFormat('MMM d, y').format(earliest.toLocal())} – ${DateFormat('MMM d, y').format(latest.toLocal())}',
+                      value:
+                          '${DateFormat('MMM d, y').format(earliest.toLocal())} – ${DateFormat('MMM d, y').format(latest.toLocal())}',
                     ),
                 ],
                 const SizedBox(height: 8),
@@ -80,11 +117,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: () async {
-                      final pretty = const JsonEncoder.withIndent('  ').convert(data);
+                      final pretty =
+                          const JsonEncoder.withIndent('  ').convert(data);
                       await Clipboard.setData(ClipboardData(text: pretty));
                       if (dialogContext.mounted) {
                         ScaffoldMessenger.of(dialogContext).showSnackBar(
-                          const SnackBar(content: Text('Raw data (JSON) copied to clipboard')),
+                          const SnackBar(
+                              content:
+                                  Text('Raw data (JSON) copied to clipboard')),
                         );
                       }
                     },
@@ -95,7 +135,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+                  child: TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Close')),
                 ),
               ],
             ),
@@ -104,7 +146,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not export: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not export: $e')));
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
@@ -145,8 +188,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     radius: 22,
                     backgroundColor: AppColors.tide,
                     child: Text(
-                      (auth.email ?? '?').isNotEmpty ? auth.email![0].toUpperCase() : '?',
-                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700),
+                      (auth.email ?? '?').isNotEmpty
+                          ? auth.email![0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -154,13 +202,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(auth.email ?? '', style: Theme.of(context).textTheme.titleMedium),
+                        Text(auth.email ?? '',
+                            style: Theme.of(context).textTheme.titleMedium),
                         const SizedBox(height: 2),
-                        Text('Signed in · tap to view', style: Theme.of(context).textTheme.labelSmall),
+                        Text('Signed in · tap to view',
+                            style: Theme.of(context).textTheme.labelSmall),
                       ],
                     ),
                   ),
-                  Icon(Icons.chevron_right, color: AppColors.mutedText, size: 20),
+                  Icon(Icons.chevron_right,
+                      color: AppColors.mutedText, size: 20),
                 ],
               ),
             ),
@@ -171,7 +222,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SettingsCard(
             children: [
               _SettingsRow(
-                icon: theme.isDark ? Icons.dark_mode : Icons.light_mode_outlined,
+                icon:
+                    theme.isDark ? Icons.dark_mode : Icons.light_mode_outlined,
                 title: 'Dark mode',
                 subtitle: theme.isDark ? 'On' : 'Off',
                 trailing: Switch(
@@ -187,10 +239,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SettingsCard(
             children: [
               _SettingsRow(
-                icon: Icons.fingerprint,
-                title: 'Biometric lock',
-                subtitle: 'Coming soon',
-                trailing: Switch(value: false, onChanged: null),
+                icon: Icons.lock_outline,
+                title: 'App lock',
+                subtitle: _checkingLock
+                    ? 'Checking...'
+                    : (_lockEnabled
+                        ? 'On - PIN required to open Alongside'
+                        : 'Off'),
+                trailing: Switch(
+                  value: _lockEnabled,
+                  onChanged: _checkingLock ? null : _toggleLock,
+                ),
               ),
               const _RowDivider(),
               _SettingsRow(
@@ -198,8 +257,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: 'Export my data',
                 subtitle: 'See a summary of what Alongside has stored for you',
                 trailing: _exporting
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(Icons.chevron_right, color: AppColors.mutedText, size: 20),
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(Icons.chevron_right,
+                        color: AppColors.mutedText, size: 20),
                 onTap: _exporting ? null : _exportData,
               ),
             ],
@@ -213,7 +276,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.favorite_border,
                 title: 'Crisis resources',
                 subtitle: 'Helplines and immediate support',
-                trailing: Icon(Icons.chevron_right, color: AppColors.mutedText, size: 20),
+                trailing: Icon(Icons.chevron_right,
+                    color: AppColors.mutedText, size: 20),
                 onTap: () => showCrisisResourcesDialog(context),
               ),
             ],
@@ -250,8 +314,16 @@ class _ExportStatRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.mutedText)),
-          Text(value, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text(label,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AppColors.mutedText)),
+          Text(value,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -268,7 +340,11 @@ class _SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4, bottom: 8),
       child: Text(
         text.toUpperCase(),
-        style: TextStyle(color: AppColors.mutedText, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6),
+        style: TextStyle(
+            color: AppColors.mutedText,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6),
       ),
     );
   }
@@ -332,11 +408,13 @@ class _SettingsRow extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: titleColor, fontWeight: FontWeight.w600),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: titleColor, fontWeight: FontWeight.w600),
                   ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
-                    Text(subtitle!, style: Theme.of(context).textTheme.labelSmall),
+                    Text(subtitle!,
+                        style: Theme.of(context).textTheme.labelSmall),
                   ],
                 ],
               ),

@@ -6,6 +6,7 @@ import 'services/theme_controller.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/home_screen.dart';
 import 'theme/app_theme.dart';
+import 'widgets/lock_gate.dart';
 
 void main() {
   // google_fonts needs the Flutter engine's ServicesBinding ready before it
@@ -67,10 +68,13 @@ class _AlongsideAppState extends State<AlongsideApp> {
         future: _startupFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+            return const Scaffold(
+                body: Center(child: CircularProgressIndicator()));
           }
           return Consumer<AuthService>(
-            builder: (_, auth, __) => auth.isLoggedIn ? const HomeScreen() : const OnboardingScreen(),
+            builder: (_, auth, __) => auth.isLoggedIn
+                ? const LockGate(child: HomeScreen())
+                : const OnboardingScreen(),
           );
         },
       ),
