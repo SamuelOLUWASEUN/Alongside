@@ -14,11 +14,13 @@ class MoodScreen extends StatefulWidget {
 class _MoodEntry {
   final DateTime time;
   final double score;
-  _MoodEntry(this.time, this.score);
+  final String? note;
+  _MoodEntry(this.time, this.score, this.note);
 }
 
 class _MoodScreenState extends State<MoodScreen> {
   double _score = 5;
+  final _noteController = TextEditingController();
   bool _saving = false;
   bool _loadingHistory = true;
   List<_MoodEntry> _history = [];
@@ -42,6 +44,12 @@ class _MoodScreenState extends State<MoodScreen> {
     _loadHistory();
   }
 
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadHistory() async {
     setState(() => _loadingHistory = true);
     try {
@@ -52,6 +60,9 @@ class _MoodScreenState extends State<MoodScreen> {
           .map((e) => _MoodEntry(
                 DateTime.parse(e['time'] as String).toLocal(),
                 (e['score'] as num).toDouble(),
+                (e['note'] as String?)?.trim().isNotEmpty == true
+                    ? e['note'] as String
+                    : null,
               ))
           .toList()
         ..sort(
@@ -68,10 +79,14 @@ class _MoodScreenState extends State<MoodScreen> {
   Future<void> _logMood() async {
     setState(() => _saving = true);
     try {
-      await ApiService.post('/mood/log', {'score': _score.round()});
+      await ApiService.post('/mood/log', {
+        'score': _score.round(),
+        'note': _noteController.text.trim(),
+      });
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Check-in saved')));
+        _noteController.clear();
       }
       await _loadHistory();
     } catch (e) {
@@ -86,6 +101,9 @@ class _MoodScreenState extends State<MoodScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Most recent first, for the list under the chart.
+    final recentFirst = _history.reversed.toList();
+
     return Scaffold(
       appBar: AppBar(title: const Text('Mood')),
       body: ListView(
@@ -95,11 +113,16 @@ class _MoodScreenState extends State<MoodScreen> {
             score: _score,
             label: _labels[_score.round()]!,
             saving: _saving,
+            noteController: _noteController,
             onChanged: (v) => setState(() => _score = v),
             onSave: _logMood,
           ),
           const SizedBox(height: 20),
           _TrendCard(loading: _loadingHistory, history: _history),
+          if (!_loadingHistory && recentFirst.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _RecentEntriesCard(entries: recentFirst.take(8).toList()),
+          ],
         ],
       ),
     );
@@ -110,6 +133,7 @@ class _CheckInCard extends StatelessWidget {
   final double score;
   final String label;
   final bool saving;
+  final TextEditingController noteController;
   final ValueChanged<double> onChanged;
   final VoidCallback onSave;
 
@@ -117,6 +141,7 @@ class _CheckInCard extends StatelessWidget {
     required this.score,
     required this.label,
     required this.saving,
+    required this.noteController,
     required this.onChanged,
     required this.onSave,
   });
@@ -193,7 +218,17 @@ class _CheckInCard extends StatelessWidget {
               onChanged: onChanged,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
+          TextField(
+            controller: noteController,
+            minLines: 1,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Anything you want to add? (optional)',
+              alignLabelWithHint: true,
+            ),
+          ),
+          const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
             height: 50,
@@ -342,6 +377,84 @@ class _MoodLineChart extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A short list of recent check-ins (most recent first) so any notes people
+/// leave themselves are actually visible somewhere, not just stored silently.
+class _RecentEntriesCard extends StatelessWidget {
+  final List<_MoodEntry> entries;
+  const _RecentEntriesCard({required this.entries});
+
+  Color _scoreColor(double score) {
+    if (score <= 3) return AppColors.alert;
+    if (score <= 6) return AppColors.ember;
+    return AppColors.tide;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+            child: Text('Recent check-ins',
+                style: Theme.of(context).textTheme.titleMedium),
+          ),
+          ...List.generate(entries.length, (i) {
+            final e = entries[i];
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                        color: _scoreColor(e.score).withOpacity(0.12),
+                        shape: BoxShape.circle),
+                    child: Text(
+                      e.score.round().toString(),
+                      style: TextStyle(
+                          color: _scoreColor(e.score),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          DateFormat('MMM d, HH:mm').format(e.time),
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                        if (e.note != null) ...[
+                          const SizedBox(height: 3),
+                          Text(e.note!,
+                              style: Theme.of(context).textTheme.bodyMedium),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 8),
         ],
       ),
     );
