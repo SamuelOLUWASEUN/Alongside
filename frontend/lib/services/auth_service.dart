@@ -11,12 +11,24 @@ class AuthService with ChangeNotifier {
   bool get isLoggedIn => _isLoggedIn;
   String? get email => _email;
 
+  AuthService() {
+    // If a request's silent token-refresh attempt fails (e.g. the refresh
+    // token has also expired - happens after ~7 days of inactivity), sign
+    // the person out cleanly instead of leaving them stuck seeing repeated
+    // "invalid token" errors with no obvious way out.
+    ApiService.onAuthExpired = logout;
+  }
+
   Future<void> register(String email, String password) async {
-    await ApiService.post('/auth/register', {'email': email, 'password': password}, auth: false);
+    await ApiService.post(
+        '/auth/register', {'email': email, 'password': password},
+        auth: false);
   }
 
   Future<void> login(String email, String password) async {
-    final data = await ApiService.post('/auth/login', {'email': email, 'password': password}, auth: false);
+    final data = await ApiService.post(
+        '/auth/login', {'email': email, 'password': password},
+        auth: false);
     _accessToken = data['access_token'];
     await _storage.write(key: 'access_token', value: _accessToken);
     await _storage.write(key: 'refresh_token', value: data['refresh_token']);

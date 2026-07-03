@@ -24,6 +24,7 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen>
+    with WidgetsBindingObserver
     implements ChatScreenController {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -40,12 +41,40 @@ class _ChatScreenState extends State<ChatScreen>
   // The active conversation thread. Null until the server assigns one (via
   // the "session" message) or we load a previously-stored one from disk.
   String? _conversationId;
+  // If a reply doesn't show up within this long, something's gone stale
+  // (mobile browsers commonly freeze background-tab WebSocket connections
+  // without actually closing them) - we reconnect rather than leaving the
+  // UI hanging silently forever.
+  Timer? _replyTimeoutTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
     _connect();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Mobile browsers routinely suspend a backgrounded tab's WebSocket
+    // handling to save battery - the connection can look "alive" client-side
+    // while actually being frozen, so a reply sent while the tab was
+    // backgrounded never gets processed until something wakes it up. Force
+    // a clean reconnect whenever the app comes back to the foreground so
+    // that doesn't require the person to notice and manually retry.
+    if (state == AppLifecycleState.resumed) {
+      _reconnectFresh();
+    }
+  }
+
+  Future<void> _reconnectFresh() async {
+    _replyTimeoutTimer?.cancel();
+    _channelSubscription?.cancel();
+    _channel?.sink.close();
+    _channel = null;
+    if (mounted) setState(() => _isConnected = false);
+    await _connect();
   }
 
   void _onScroll() {
@@ -150,6 +179,7 @@ class _ChatScreenState extends State<ChatScreen>
         _messages.insert(0, ChatMessage(text, MessageSender.system, timestamp));
       } else if (type == 'ai_response') {
         _waitingForAI = false;
+        _replyTimeoutTimer?.cancel();
         _messages.insert(0, ChatMessage(text, MessageSender.ai, timestamp));
       }
     });
@@ -159,7 +189,10 @@ class _ChatScreenState extends State<ChatScreen>
 
   void _sendMessage() {
     final text = _controller.text.trim();
-    if (text.isEmpty || _channel == null) return;
+    // Also guard against sending a second message before the first reply
+    // has arrived - avoids piling up requests if someone taps send
+    // impatiently while the connection is slow or stale.
+    if (text.isEmpty || _channel == null || _waitingForAI) return;
     final now = DateTime.now();
     final payload = jsonEncode({
       'type': 'user_message',
@@ -174,6 +207,15 @@ class _ChatScreenState extends State<ChatScreen>
     _controller.clear();
     if (!_userScrolledAway)
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
+
+    // If nothing comes back in a reasonable time, the connection is
+    // probably stale (see didChangeAppLifecycleState) rather than the AI
+    // actually taking that long - reconnect automatically instead of
+    // leaving the "thinking" indicator spinning forever.
+    _replyTimeoutTimer?.cancel();
+    _replyTimeoutTimer = Timer(const Duration(seconds: 25), () {
+      if (mounted && _waitingForAI) _reconnectFresh();
+    });
   }
 
   void _dismissCrisisOverlay() => setState(() => _showCrisisOverlay = false);
@@ -215,6 +257,8 @@ class _ChatScreenState extends State<ChatScreen>
   void dispose() {
     // Cancel the subscription first so no late event can fire a callback
     // against this (about to be dead) widget, then close the socket.
+    WidgetsBinding.instance.removeObserver(this);
+    _replyTimeoutTimer?.cancel();
     _channelSubscription?.cancel();
     _channel?.sink.close();
     _controller.dispose();
@@ -229,6 +273,11 @@ class _ChatScreenState extends State<ChatScreen>
       appBar: AppBar(
         title: const Text('Your coach'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'New chat',
+            onPressed: startNewChat,
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -473,7 +522,7 @@ class _EmptyChatState extends StatelessWidget {
   }
 }
 
-/// Small "Alongside is thinking..." row shown between sending a message and
+/// Small "InnerArc is thinking..." row shown between sending a message and
 /// receiving the AI's reply - uses the arc motif rather than a generic spinner.
 class _ThinkingIndicator extends StatelessWidget {
   const _ThinkingIndicator();
@@ -522,9 +571,10 @@ class CrisisOverlay extends StatelessWidget {
               Container(
                 width: 56,
                 height: 56,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                     color: AppColors.alertTint, shape: BoxShape.circle),
-                child: Icon(Icons.favorite, color: AppColors.alert, size: 26),
+                child: const Icon(Icons.favorite,
+                    color: AppColors.alert, size: 26),
               ),
               const SizedBox(height: 18),
               Text(
