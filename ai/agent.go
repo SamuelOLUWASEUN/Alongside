@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -78,24 +79,34 @@ func Init() {
 
 // GenerateReply sends the running conversation history (already including
 // the latest user message, oldest first) to the configured LLM, prepended
-// with SystemPrompt, and returns its reply. If no client is configured or
-// the request fails, it falls back to a simple rule-based response so the
+// with SystemPrompt and, if non-empty, dynamicContext (recent mood/sleep
+// trend plus the running cross-conversation memory summary - see
+// chat/context.go). Returns the LLM's reply. If no client is configured or
+// the request fails, falls back to a simple rule-based response so the
 // chat keeps working.
 //
 // Note: this calls whichever OpenAI-compatible provider Init() configured
 // (Groq or OpenAI). It does not reach out to Anthropic's API on your behalf
 // — if you want to use Claude instead, point this at an OpenAI-compatible
 // proxy or swap in Anthropic's own SDK.
-func GenerateReply(history []openai.ChatCompletionMessage) string {
+func GenerateReply(history []openai.ChatCompletionMessage, dynamicContext string) string {
 	if client == nil {
 		return fallback(lastUserText(history))
 	}
 
-	messages := make([]openai.ChatCompletionMessage, 0, len(history)+1)
+	messages := make([]openai.ChatCompletionMessage, 0, len(history)+2)
 	messages = append(messages, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: SystemPrompt,
 	})
+	if dynamicContext != "" {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role: openai.ChatMessageRoleSystem,
+			Content: "Background context for this session - use only if naturally relevant, and never recite " +
+				"these facts verbatim or make the person feel monitored; this is quiet awareness, not a script " +
+				"to follow: " + dynamicContext,
+		})
+	}
 	messages = append(messages, history...)
 
 	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
@@ -108,6 +119,44 @@ func GenerateReply(history []openai.ChatCompletionMessage) string {
 	}
 	if len(resp.Choices) == 0 {
 		return fallback(lastUserText(history))
+	}
+	return resp.Choices[0].Message.Content
+}
+
+// SummarizeForMemory asks the LLM to produce a short, updated summary of
+// what's worth remembering about this person for future conversations,
+// merging any existing summary with what was just discussed. This is what
+// gives the AI continuity across separate conversation threads, without
+// needing to replay full transcripts into every new chat.
+func SummarizeForMemory(existingSummary string, recentMessages []openai.ChatCompletionMessage) string {
+	if client == nil || len(recentMessages) == 0 {
+		return existingSummary
+	}
+
+	transcript := ""
+	for _, m := range recentMessages {
+		transcript += string(m.Role) + ": " + m.Content + "\n"
+	}
+
+	prompt := fmt.Sprintf(`You maintain a short private memory note about a person using a mental wellness app, so their AI companion has continuity across separate conversations.
+
+Existing memory (may be empty if this is early on):
+%s
+
+Recent conversation to incorporate:
+%s
+
+Write an updated memory note (3-5 sentences max). Focus on ongoing themes, what matters to them, and context that would help a compassionate listener pick up naturally next time - not a transcript or one-off details. Write it in third person, plainly, as a private note only the AI will read.`, existingSummary, transcript)
+
+	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
+		Model: model,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: "You write concise, private continuity notes. Output only the note itself, nothing else."},
+			{Role: openai.ChatMessageRoleUser, Content: prompt},
+		},
+	})
+	if err != nil || len(resp.Choices) == 0 {
+		return existingSummary
 	}
 	return resp.Choices[0].Message.Content
 }
@@ -136,3 +185,4 @@ func fallback(userText string) string {
 		return "Thank you for sharing. I'm here with you. What's on your mind?"
 	}
 }
+

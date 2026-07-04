@@ -63,7 +63,9 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
       children: [
         widget.child,
         if (_locked)
-          _LockScreen(onUnlocked: () => setState(() => _locked = false)),
+          Positioned.fill(
+              child: _LockScreen(
+                  onUnlocked: () => setState(() => _locked = false))),
       ],
     );
   }
@@ -82,6 +84,7 @@ class _LockScreenState extends State<_LockScreen> {
   String? _error;
   bool _checkingBiometrics = true;
   bool _biometricsAvailable = false;
+  bool _obscurePin = true;
 
   @override
   void initState() {
@@ -127,59 +130,72 @@ class _LockScreenState extends State<_LockScreen> {
   Widget build(BuildContext context) {
     return Material(
       color: AppColors.harbor,
-      child: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const ArcMotif(size: 56, strokeWidth: 6),
-                const SizedBox(height: 20),
-                Text('Enter your PIN',
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineSmall
-                        ?.copyWith(color: Colors.white)),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: 200,
-                  child: TextField(
-                    controller: _pinController,
-                    obscureText: true,
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    autofocus: true,
-                    maxLength: 6,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 22, letterSpacing: 8),
-                    decoration: InputDecoration(
-                      counterText: '',
-                      errorText: _error,
-                      enabledBorder: const UnderlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white38)),
-                      focusedBorder: const UnderlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white)),
+      child: SizedBox.expand(
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const ArcMotif(size: 56, strokeWidth: 6),
+                  const SizedBox(height: 20),
+                  Text('Enter your PIN',
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineSmall
+                          ?.copyWith(color: Colors.white)),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: 220,
+                    child: TextField(
+                      controller: _pinController,
+                      obscureText: _obscurePin,
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      autofocus: true,
+                      maxLength: 6,
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 22, letterSpacing: 8),
+                      decoration: InputDecoration(
+                        counterText: '',
+                        errorText: _error,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                              _obscurePin
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: Colors.white54,
+                              size: 20),
+                          onPressed: () =>
+                              setState(() => _obscurePin = !_obscurePin),
+                        ),
+                        enabledBorder: const UnderlineInputBorder(
+                            borderSide: BorderSide(color: Colors.white38)),
+                        focusedBorder: const UnderlineInputBorder(
+                            borderSide: BorderSide(color: Colors.white)),
+                      ),
+                      onChanged: (_) => setState(() => _error = null),
+                      onSubmitted: (_) => _submitPin(),
                     ),
-                    onChanged: (_) => setState(() => _error = null),
-                    onSubmitted: (_) => _submitPin(),
                   ),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                    width: 200,
-                    child: ElevatedButton(
-                        onPressed: _submitPin, child: const Text('Unlock'))),
-                if (!_checkingBiometrics && _biometricsAvailable) ...[
-                  const SizedBox(height: 12),
-                  TextButton.icon(
-                    onPressed: _tryBiometrics,
-                    icon: const Icon(Icons.fingerprint, color: Colors.white70),
-                    label: const Text('Use biometrics',
-                        style: TextStyle(color: Colors.white70)),
-                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                      width: 200,
+                      child: ElevatedButton(
+                          onPressed: _submitPin, child: const Text('Unlock'))),
+                  if (!_checkingBiometrics && _biometricsAvailable) ...[
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: _tryBiometrics,
+                      icon:
+                          const Icon(Icons.fingerprint, color: Colors.white70),
+                      label: const Text('Use biometrics',
+                          style: TextStyle(color: Colors.white70)),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),

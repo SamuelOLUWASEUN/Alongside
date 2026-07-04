@@ -52,6 +52,7 @@ func ServeWs(w http.ResponseWriter, r *http.Request) {
 		send:           make(chan []byte, 256),
 		userID:         userID,
 		conversationID: conversationID,
+		userContext:    buildUserContext(context.Background(), userID),
 	}
 	client.hub.register <- client
 

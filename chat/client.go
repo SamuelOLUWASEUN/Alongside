@@ -59,12 +59,25 @@ type Client struct {
 	// history is the bounded in-memory conversation window passed to the AI
 	// provider on each turn. Seeded from persisted chat_messages on connect.
 	history []openai.ChatCompletionMessage
+	// userContext is built once per connection (mood/sleep trend + the
+	// cross-conversation memory summary) rather than re-queried on every
+	// message, since it only needs to be roughly fresh for a session.
+	userContext string
+	// newMessagesThisSession counts genuine new exchanges (not messages
+	// replayed from history on connect), so memory only gets updated when
+	// something actually new was discussed.
+	newMessagesThisSession int
 }
 
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
 		c.conn.Close()
+		// Update the cross-conversation memory summary in the background so
+		// closing the connection isn't held up waiting on an extra LLM call.
+		if c.newMessagesThisSession > 0 {
+			go c.updateMemory()
+		}
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -88,6 +101,7 @@ func (c *Client) readPump() {
 
 		c.saveMessage("user", incoming.Text, time.Now())
 		c.appendHistory(openai.ChatMessageRoleUser, incoming.Text)
+		c.newMessagesThisSession++
 
 		if safety.ContainsCrisisKeywords(incoming.Text) {
 			alertText := safety.GetCrisisResponse()
@@ -98,7 +112,7 @@ func (c *Client) readPump() {
 			}
 		}
 
-		aiText := ai.GenerateReply(c.history)
+		aiText := ai.GenerateReply(c.history, c.userContext)
 		c.appendHistory(openai.ChatMessageRoleAssistant, aiText)
 		aiTime := time.Now()
 		c.saveMessage("ai", aiText, aiTime)
@@ -129,6 +143,23 @@ func (c *Client) appendHistory(role, content string) {
 	}
 }
 
+// updateMemory asks the AI to fold this session into an updated
+// cross-conversation memory summary, then persists it. Runs in its own
+// goroutine after the connection has already closed, using
+// context.Background() since the original request context is gone by then.
+func (c *Client) updateMemory() {
+	ctx := context.Background()
+	existing := loadMemorySummary(ctx, c.userID)
+	updated := ai.SummarizeForMemory(existing, c.history)
+	if updated == "" || updated == existing {
+		return
+	}
+	_, err := db.Pool.Exec(ctx, `UPDATE users SET memory_summary=$1 WHERE id=$2`, updated, c.userID)
+	if err != nil {
+		log.Printf("chat: failed to update memory summary: %v", err)
+	}
+}
+
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -154,3 +185,4 @@ func (c *Client) writePump() {
 		}
 	}
 }
+

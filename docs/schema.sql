@@ -16,7 +16,11 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    -- Running cross-conversation memory summary, updated by the AI after
+    -- each chat session so it has continuity across separate threads
+    -- without needing to replay full transcripts.
+    memory_summary TEXT DEFAULT ''
 );
 
 -- Refresh tokens (for blacklisting)

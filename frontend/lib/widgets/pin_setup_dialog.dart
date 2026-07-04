@@ -23,6 +23,7 @@ class _PinSetupDialogState extends State<_PinSetupDialog> {
   final _first = TextEditingController();
   final _second = TextEditingController();
   bool _confirming = false;
+  bool _obscure = true;
   String? _error;
 
   @override
@@ -82,14 +83,23 @@ class _PinSetupDialogState extends State<_PinSetupDialog> {
             TextField(
               key: ValueKey(_confirming),
               controller: _confirming ? _second : _first,
-              obscureText: true,
+              obscureText: _obscure,
               keyboardType: TextInputType.number,
               maxLength: 6,
               autofocus: true,
               decoration: InputDecoration(
-                  labelText: _confirming ? 'Confirm PIN' : 'New PIN',
-                  counterText: '',
-                  errorText: _error),
+                labelText: _confirming ? 'Confirm PIN' : 'New PIN',
+                counterText: '',
+                errorText: _error,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                      _obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      size: 20),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
               onSubmitted: (_) =>
                   _confirming ? _submitSecond() : _submitFirst(),
             ),
@@ -132,6 +142,7 @@ class _PinConfirmDialog extends StatefulWidget {
 
 class _PinConfirmDialogState extends State<_PinConfirmDialog> {
   final _controller = TextEditingController();
+  bool _obscure = true;
   String? _error;
 
   @override
@@ -167,12 +178,23 @@ class _PinConfirmDialogState extends State<_PinConfirmDialog> {
             const SizedBox(height: 16),
             TextField(
               controller: _controller,
-              obscureText: true,
+              obscureText: _obscure,
               keyboardType: TextInputType.number,
               maxLength: 6,
               autofocus: true,
               decoration: InputDecoration(
-                  labelText: 'PIN', counterText: '', errorText: _error),
+                labelText: 'PIN',
+                counterText: '',
+                errorText: _error,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                      _obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      size: 20),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
               onSubmitted: (_) => _submit(),
             ),
             const SizedBox(height: 8),
