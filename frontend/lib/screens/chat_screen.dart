@@ -83,7 +83,16 @@ class _ChatScreenState extends State<ChatScreen>
     _channelSubscription?.cancel();
     _channel?.sink.close();
     _channel = null;
-    if (mounted) setState(() => _isConnected = false);
+    if (mounted) {
+      setState(() {
+        _isConnected = false;
+        // This was the actual bug: without resetting this, _sendMessage's
+        // guard against double-sends would permanently block every future
+        // message after a timeout-triggered reconnect, since nothing ever
+        // told it the original wait was over.
+        _waitingForAI = false;
+      });
+    }
     await _connect();
   }
 
@@ -224,8 +233,18 @@ class _ChatScreenState extends State<ChatScreen>
     // leaving the "thinking" indicator spinning forever.
     _replyTimeoutTimer?.cancel();
     _replyTimeoutTimer = Timer(const Duration(seconds: 25), () {
-      if (mounted && _waitingForAI) _reconnectFresh();
+      if (mounted && _waitingForAI) _handleStaleConnection();
     });
+  }
+
+  Future<void> _handleStaleConnection() async {
+    await _reconnectFresh();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Connection needed a refresh - please send your message again")),
+      );
+    }
+  }
   }
 
   void _dismissCrisisOverlay() => setState(() => _showCrisisOverlay = false);

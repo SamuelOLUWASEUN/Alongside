@@ -23,6 +23,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _exporting = false;
   bool _checkingLock = true;
   bool _lockEnabled = false;
+  bool _clearingMemory = false;
 
   @override
   void initState() {
@@ -161,6 +162,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _clearMemory() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Clear coach memory?'),
+        content: const Text(
+            "Your coach will start fresh, with no memory of themes from past conversations. This can't be undone."),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child:
+                const Text('Clear', style: TextStyle(color: AppColors.alert)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _clearingMemory = true);
+    try {
+      await ApiService.post('/memory/clear', {});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Coach memory cleared')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _clearingMemory = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
@@ -266,6 +305,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: _exporting ? null : _exportData,
               ),
             ],
+          ),
+          const SizedBox(height: 20),
+
+          _SectionLabel('Your AI coach'),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.line),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Coach memory',
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 6),
+                Text(
+                  "Your coach remembers general themes from past conversations - not exact words, just "
+                  "enough to feel consistent rather than starting over each time. It's encrypted at rest "
+                  "and only ever used to help conversations flow naturally. You can clear it anytime.",
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: AppColors.mutedText, height: 1.4),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _clearingMemory ? null : _clearMemory,
+                    icon: _clearingMemory
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.delete_outline, size: 16),
+                    label: Text(
+                        _clearingMemory ? 'Clearing...' : 'Clear coach memory'),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 20),
 

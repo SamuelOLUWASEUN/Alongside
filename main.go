@@ -84,6 +84,7 @@ func main() {
 	protected.HandleFunc("/vault/{id}", vault.DeleteItem).Methods("DELETE")
 	protected.HandleFunc("/export", export.FullExport).Methods("GET")
 	protected.HandleFunc("/chat/conversations", chat.ListConversations).Methods("GET")
+	protected.HandleFunc("/memory/clear", chat.ClearMemory).Methods("POST")
 
 	// WebSocket chat (token in query)
 	r.HandleFunc("/ws/chat", chat.ServeWs)

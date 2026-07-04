@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/yourorg/innerarc-core/db"
 )
@@ -77,11 +78,16 @@ func recentSleepSummary(ctx context.Context, userID string) string {
 }
 
 func loadMemorySummary(ctx context.Context, userID string) string {
-	var summary *string
-	err := db.Pool.QueryRow(ctx, `SELECT memory_summary FROM users WHERE id=$1`, userID).Scan(&summary)
-	if err != nil || summary == nil {
+	var encrypted *string
+	err := db.Pool.QueryRow(ctx, `SELECT memory_summary FROM users WHERE id=$1`, userID).Scan(&encrypted)
+	if err != nil || encrypted == nil || *encrypted == "" {
 		return ""
 	}
-	return *summary
+	plaintext, err := decryptMemory(*encrypted)
+	if err != nil {
+		log.Printf("chat: failed to decrypt memory summary, treating as none: %v", err)
+		return ""
+	}
+	return plaintext
 }
 

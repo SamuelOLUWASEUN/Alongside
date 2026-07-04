@@ -154,7 +154,12 @@ func (c *Client) updateMemory() {
 	if updated == "" || updated == existing {
 		return
 	}
-	_, err := db.Pool.Exec(ctx, `UPDATE users SET memory_summary=$1 WHERE id=$2`, updated, c.userID)
+	encrypted, err := encryptMemory(updated)
+	if err != nil {
+		log.Printf("chat: failed to encrypt memory summary, not saving: %v", err)
+		return
+	}
+	_, err = db.Pool.Exec(ctx, `UPDATE users SET memory_summary=$1 WHERE id=$2`, encrypted, c.userID)
 	if err != nil {
 		log.Printf("chat: failed to update memory summary: %v", err)
 	}
