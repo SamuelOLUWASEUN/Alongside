@@ -19,6 +19,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _consentAiJournal = true;
   bool _isLogin = true;
   bool _loading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   Future<void> _submit() async {
@@ -29,14 +30,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final auth = context.read<AuthService>();
     try {
       if (_isLogin) {
-        await auth.login(_emailController.text.trim(), _passwordController.text);
+        await auth.login(
+            _emailController.text.trim(), _passwordController.text);
       } else {
-        await auth.register(_emailController.text.trim(), _passwordController.text);
-        await auth.login(_emailController.text.trim(), _passwordController.text);
+        await auth.register(
+            _emailController.text.trim(), _passwordController.text);
+        await auth.login(
+            _emailController.text.trim(), _passwordController.text);
         // Record the consent choices made on this screen. Fire-and-forget:
         // consent logging shouldn't block getting into the app.
-        unawaited(ApiService.post('/consent/grant', {'type': 'mood_tracking', 'granted': _consentMoodTracking}));
-        unawaited(ApiService.post('/consent/grant', {'type': 'ai_journal', 'granted': _consentAiJournal}));
+        unawaited(ApiService.post('/consent/grant',
+            {'type': 'mood_tracking', 'granted': _consentMoodTracking}));
+        unawaited(ApiService.post('/consent/grant',
+            {'type': 'ai_journal', 'granted': _consentAiJournal}));
       }
     } catch (e) {
       if (mounted) setState(() => _error = _friendlyError(e));
@@ -48,7 +54,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String _friendlyError(Object e) {
     final text = e.toString();
     if (text.contains('401')) return "That email and password don't match.";
-    if (text.contains('409')) return 'An account already exists with that email.';
+    if (text.contains('409'))
+      return 'An account already exists with that email.';
     return "Something didn't go through. Check your connection and try again.";
   }
 
@@ -85,7 +92,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         ? "Glad you're here. Sign in to pick up where you left off."
                         : 'Track how you feel, talk it through, and keep what matters to yourself private.',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.mutedText),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: AppColors.mutedText),
                   ),
                   const SizedBox(height: 36),
                   TextField(
@@ -96,22 +106,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   const SizedBox(height: 14),
                   TextField(
                     controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Password'),
+                    obscureText: _obscurePassword,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                            size: 20),
+                        onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword),
+                      ),
+                    ),
                     onSubmitted: (_) => _submit(),
                   ),
                   if (!_isLogin) ...[
                     const SizedBox(height: 28),
                     _ConsentRow(
                       title: 'Mood tracking',
-                      subtitle: "Let Alongside remember your check-ins so you can see patterns over time.",
+                      subtitle:
+                          "Let Alongside remember your check-ins so you can see patterns over time.",
                       value: _consentMoodTracking,
-                      onChanged: (v) => setState(() => _consentMoodTracking = v),
+                      onChanged: (v) =>
+                          setState(() => _consentMoodTracking = v),
                     ),
                     const SizedBox(height: 10),
                     _ConsentRow(
                       title: 'AI journal',
-                      subtitle: 'Let your coach conversations inform gentle, personalized check-ins.',
+                      subtitle:
+                          'Let your coach conversations inform gentle, personalized check-ins.',
                       value: _consentAiJournal,
                       onChanged: (v) => setState(() => _consentAiJournal = v),
                     ),
@@ -139,7 +163,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2.4, color: Colors.white),
                             )
                           : Text(_isLogin ? 'Sign in' : 'Create account'),
                     ),
@@ -147,8 +172,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   const SizedBox(height: 14),
                   Center(
                     child: TextButton(
-                      onPressed: _loading ? null : () => setState(() => _isLogin = !_isLogin),
-                      child: Text(_isLogin ? "New here? Create an account" : 'Already have an account? Sign in'),
+                      onPressed: _loading
+                          ? null
+                          : () => setState(() => _isLogin = !_isLogin),
+                      child: Text(_isLogin
+                          ? "New here? Create an account"
+                          : 'Already have an account? Sign in'),
                     ),
                   ),
                 ],
@@ -194,7 +223,10 @@ class _ConsentRow extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   subtitle,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(height: 1.4),
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(height: 1.4),
                 ),
               ],
             ),
