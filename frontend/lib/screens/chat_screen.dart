@@ -230,10 +230,6 @@ class _ChatScreenState extends State<ChatScreen>
     // If nothing comes back in a reasonable time, the connection is
     // probably stale (see didChangeAppLifecycleState) rather than the AI
     // actually taking that long - reconnect automatically instead of
-    // leaving the "thinking" indicator spinning forever.
-    _// If nothing comes back in a reasonable time, the connection is
-    // probably stale (see didChangeAppLifecycleState) rather than the AI
-    // actually taking that long - reconnect automatically instead of
     // leaving the "thinking" indicator spinning forever. Groq typically
     // replies in 1-3 seconds, so 8 seconds is a safe buffer without making
     // a genuinely stale connection feel like a long stall.
@@ -241,7 +237,6 @@ class _ChatScreenState extends State<ChatScreen>
     _replyTimeoutTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && _waitingForAI) _handleStaleConnection();
     });
-  }
   }
 
   Future<void> _handleStaleConnection() async {
