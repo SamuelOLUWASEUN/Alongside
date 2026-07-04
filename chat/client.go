@@ -17,7 +17,11 @@ import (
 
 const (
 	writeWait      = 10 * time.Second
-	pongWait       = 60 * time.Second
+	// Backgrounded mobile connections often die silently (OS drops the
+	// socket with no close handshake) - the server only notices via this
+	// ping/pong timeout, so keeping it short means a dead connection gets
+	// cleaned up in ~20s instead of lingering up to a minute or more.
+	pongWait       = 20 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 2048
 	// maxHistoryLen bounds how much conversation context gets sent to the
