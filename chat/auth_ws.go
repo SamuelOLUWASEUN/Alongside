@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/yourorg/innerarc-core/auth"
 	"github.com/yourorg/innerarc-core/db"
@@ -77,22 +78,27 @@ type chatRow struct {
 // the UI can repopulate on reconnect), and seeds the in-memory AI context.
 // A brand-new conversation legitimately has no rows yet, which is fine.
 func (c *Client) loadHistory() {
-	rows, err := db.Pool.Query(context.Background(),
-		`SELECT sender, message, created_at FROM chat_messages
-		 WHERE user_id=$1 AND conversation_id=$2 ORDER BY created_at DESC LIMIT $3`,
-		c.userID, c.conversationID, historyLoadLimit)
+	var descRows []chatRow
+	err := db.RunAsUser(context.Background(), c.userID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(context.Background(),
+			`SELECT sender, message, created_at FROM chat_messages
+			 WHERE user_id=$1 AND conversation_id=$2 ORDER BY created_at DESC LIMIT $3`,
+			c.userID, c.conversationID, historyLoadLimit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var rrow chatRow
+			if scanErr := rows.Scan(&rrow.sender, &rrow.message, &rrow.createdAt); scanErr == nil {
+				descRows = append(descRows, rrow)
+			}
+		}
+		return rows.Err()
+	})
 	if err != nil {
 		log.Printf("chat: failed to load history: %v", err)
 		return
-	}
-	defer rows.Close()
-
-	var descRows []chatRow
-	for rows.Next() {
-		var rrow chatRow
-		if scanErr := rows.Scan(&rrow.sender, &rrow.message, &rrow.createdAt); scanErr == nil {
-			descRows = append(descRows, rrow)
-		}
 	}
 	if len(descRows) == 0 {
 		return

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/yourorg/innerarc-core/auth"
 	"github.com/yourorg/innerarc-core/db"
 	"gopkg.in/gomail.v2"
@@ -30,9 +31,12 @@ func TriggerAlert(w http.ResponseWriter, r *http.Request) {
 		Message string `json:"message"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
-	db.Pool.Exec(r.Context(),
-		"INSERT INTO crisis_alerts (user_id, message, helpline_shown) VALUES ($1, $2, $3)",
-		userID, body.Message, true)
+	db.RunAsUser(r.Context(), userID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(r.Context(),
+			"INSERT INTO crisis_alerts (user_id, message, helpline_shown) VALUES ($1, $2, $3)",
+			userID, body.Message, true)
+		return err
+	})
 	// Email notification if SMTP is configured
 	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {
 		m := gomail.NewMessage()
@@ -46,3 +50,4 @@ func TriggerAlert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "alert_sent"})
 }
+

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5"
 	"github.com/yourorg/innerarc-core/auth"
 	"github.com/yourorg/innerarc-core/db"
 )
@@ -24,20 +25,28 @@ type VaultItem struct {
 
 func GetItems(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r.Context())
-	rows, err := db.Pool.Query(r.Context(),
-		"SELECT id, label, encrypted_data, created_at FROM vault_items WHERE user_id=$1 ORDER BY created_at DESC", userID)
+	var items []VaultItem
+	err := db.RunAsUser(r.Context(), userID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(r.Context(),
+			"SELECT id, label, encrypted_data, created_at FROM vault_items WHERE user_id=$1 ORDER BY created_at DESC", userID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var item VaultItem
+			var t time.Time
+			if err := rows.Scan(&item.ID, &item.Label, &item.EncryptedData, &t); err != nil {
+				return err
+			}
+			item.CreatedAt = t.Format(time.RFC3339)
+			items = append(items, item)
+		}
+		return rows.Err()
+	})
 	if err != nil {
 		http.Error(w, "DB error", 500)
 		return
-	}
-	defer rows.Close()
-	var items []VaultItem
-	for rows.Next() {
-		var item VaultItem
-		var t time.Time
-		rows.Scan(&item.ID, &item.Label, &item.EncryptedData, &t)
-		item.CreatedAt = t.Format(time.RFC3339)
-		items = append(items, item)
 	}
 	json.NewEncoder(w).Encode(items)
 }
@@ -47,10 +56,12 @@ func CreateItem(w http.ResponseWriter, r *http.Request) {
 	var item VaultItem
 	json.NewDecoder(r.Body).Decode(&item)
 	var createdAt time.Time
-	err := db.Pool.QueryRow(r.Context(),
-		`INSERT INTO vault_items (user_id, label, encrypted_data)
-		 VALUES ($1, $2, $3) RETURNING id, created_at`,
-		userID, item.Label, item.EncryptedData).Scan(&item.ID, &createdAt)
+	err := db.RunAsUser(r.Context(), userID, func(tx pgx.Tx) error {
+		return tx.QueryRow(r.Context(),
+			`INSERT INTO vault_items (user_id, label, encrypted_data)
+			 VALUES ($1, $2, $3) RETURNING id, created_at`,
+			userID, item.Label, item.EncryptedData).Scan(&item.ID, &createdAt)
+	})
 	if err != nil {
 		http.Error(w, "DB error", 500)
 		return
@@ -65,10 +76,13 @@ func UpdateItem(w http.ResponseWriter, r *http.Request) {
 	itemID := mux.Vars(r)["id"]
 	var item VaultItem
 	json.NewDecoder(r.Body).Decode(&item)
-	_, err := db.Pool.Exec(r.Context(),
-		`UPDATE vault_items SET label=$1, encrypted_data=$2, updated_at=$3
-		 WHERE id=$4 AND user_id=$5`,
-		item.Label, item.EncryptedData, time.Now(), itemID, userID)
+	err := db.RunAsUser(r.Context(), userID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(r.Context(),
+			`UPDATE vault_items SET label=$1, encrypted_data=$2, updated_at=$3
+			 WHERE id=$4 AND user_id=$5`,
+			item.Label, item.EncryptedData, time.Now(), itemID, userID)
+		return err
+	})
 	if err != nil {
 		http.Error(w, "DB error", 500)
 		return
@@ -79,11 +93,14 @@ func UpdateItem(w http.ResponseWriter, r *http.Request) {
 func DeleteItem(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r.Context())
 	itemID := mux.Vars(r)["id"]
-	_, err := db.Pool.Exec(r.Context(),
-		"DELETE FROM vault_items WHERE id=$1 AND user_id=$2", itemID, userID)
+	err := db.RunAsUser(r.Context(), userID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(r.Context(), "DELETE FROM vault_items WHERE id=$1 AND user_id=$2", itemID, userID)
+		return err
+	})
 	if err != nil {
 		http.Error(w, "DB error", 500)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+

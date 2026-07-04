@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/yourorg/innerarc-core/auth"
 	"github.com/yourorg/innerarc-core/db"
 )
@@ -16,21 +17,27 @@ import (
 func GetStreak(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r.Context())
 
-	rows, err := db.Pool.Query(r.Context(),
-		`SELECT DISTINCT DATE(time) AS d FROM mood_entries
-		 WHERE user_id=$1 ORDER BY d DESC LIMIT 400`, userID)
+	var dates []time.Time
+	err := db.RunAsUser(r.Context(), userID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(r.Context(),
+			`SELECT DISTINCT DATE(time) AS d FROM mood_entries
+			 WHERE user_id=$1 ORDER BY d DESC LIMIT 400`, userID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var d time.Time
+			if err := rows.Scan(&d); err != nil {
+				return err
+			}
+			dates = append(dates, d)
+		}
+		return rows.Err()
+	})
 	if err != nil {
 		http.Error(w, "DB error", http.StatusInternalServerError)
 		return
-	}
-	defer rows.Close()
-
-	var dates []time.Time
-	for rows.Next() {
-		var d time.Time
-		if err := rows.Scan(&d); err == nil {
-			dates = append(dates, d)
-		}
 	}
 
 	now := time.Now().UTC()
@@ -75,3 +82,4 @@ func GetStreak(w http.ResponseWriter, r *http.Request) {
 		"checked_in_today": checkedInToday,
 	})
 }
+

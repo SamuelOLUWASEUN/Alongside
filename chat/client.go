@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/yourorg/innerarc-core/ai"
 	"github.com/yourorg/innerarc-core/config"
@@ -132,9 +133,12 @@ func (c *Client) readPump() {
 // the original HTTP request's context, since this runs in a long-lived
 // goroutine that outlives the request that opened the WebSocket.
 func (c *Client) saveMessage(sender, text string, at time.Time) {
-	_, err := db.Pool.Exec(context.Background(),
-		"INSERT INTO chat_messages (user_id, conversation_id, sender, message, created_at) VALUES ($1, $2, $3, $4, $5)",
-		c.userID, c.conversationID, sender, text, at)
+	err := db.RunAsUser(context.Background(), c.userID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			"INSERT INTO chat_messages (user_id, conversation_id, sender, message, created_at) VALUES ($1, $2, $3, $4, $5)",
+			c.userID, c.conversationID, sender, text, at)
+		return err
+	})
 	if err != nil {
 		log.Printf("chat: failed to persist message: %v", err)
 	}

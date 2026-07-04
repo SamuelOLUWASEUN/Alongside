@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/yourorg/innerarc-core/auth"
 	"github.com/yourorg/innerarc-core/db"
 )
@@ -27,35 +28,43 @@ type sleepRow struct {
 func FullExport(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r.Context())
 
-	var export struct {
+	var result struct {
 		UserID string     `json:"user_id"`
 		Moods  []moodRow  `json:"moods"`
 		Sleep  []sleepRow `json:"sleep"`
 	}
-	export.UserID = userID
+	result.UserID = userID
 
-	moodRows, err := db.Pool.Query(r.Context(), "SELECT time, mood_score, note FROM mood_entries WHERE user_id=$1 ORDER BY time DESC", userID)
-	if err == nil {
-		defer moodRows.Close()
-		for moodRows.Next() {
-			var m moodRow
-			if moodRows.Scan(&m.Time, &m.Score, &m.Note) == nil {
-				export.Moods = append(export.Moods, m)
+	err := db.RunAsUser(r.Context(), userID, func(tx pgx.Tx) error {
+		moodRows, err := tx.Query(r.Context(), "SELECT time, mood_score, note FROM mood_entries WHERE user_id=$1 ORDER BY time DESC", userID)
+		if err == nil {
+			defer moodRows.Close()
+			for moodRows.Next() {
+				var m moodRow
+				if moodRows.Scan(&m.Time, &m.Score, &m.Note) == nil {
+					result.Moods = append(result.Moods, m)
+				}
 			}
 		}
-	}
 
-	sleepRows, err := db.Pool.Query(r.Context(), "SELECT time, hours, quality FROM sleep_entries WHERE user_id=$1 ORDER BY time DESC", userID)
-	if err == nil {
-		defer sleepRows.Close()
-		for sleepRows.Next() {
-			var s sleepRow
-			if sleepRows.Scan(&s.Time, &s.Hours, &s.Quality) == nil {
-				export.Sleep = append(export.Sleep, s)
+		sleepRows, err := tx.Query(r.Context(), "SELECT time, hours, quality FROM sleep_entries WHERE user_id=$1 ORDER BY time DESC", userID)
+		if err == nil {
+			defer sleepRows.Close()
+			for sleepRows.Next() {
+				var s sleepRow
+				if sleepRows.Scan(&s.Time, &s.Hours, &s.Quality) == nil {
+					result.Sleep = append(result.Sleep, s)
+				}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(export)
+	json.NewEncoder(w).Encode(result)
 }
+

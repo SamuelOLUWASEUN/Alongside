@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/yourorg/innerarc-core/db"
 )
 
@@ -13,15 +14,30 @@ import (
 // plus a running memory summary carried over from past conversations. This
 // is fed to the AI as background context only - never shown to the user,
 // and the AI is explicitly instructed not to recite it verbatim.
+//
+// The mood/sleep lookups run inside one shared RLS-scoped transaction
+// (mood_entries and sleep_entries both have row-level security enabled).
+// The memory summary lookup runs separately against `users`, which isn't
+// RLS-protected - see docs/migration_rls.sql for why.
 func buildUserContext(ctx context.Context, userID string) string {
 	var parts []string
 
-	if moodPart := recentMoodSummary(ctx, userID); moodPart != "" {
+	var moodPart, sleepPart string
+	err := db.RunAsUser(ctx, userID, func(tx pgx.Tx) error {
+		moodPart = recentMoodSummary(ctx, tx, userID)
+		sleepPart = recentSleepSummary(ctx, tx, userID)
+		return nil
+	})
+	if err != nil {
+		log.Printf("chat: failed to load mood/sleep context: %v", err)
+	}
+	if moodPart != "" {
 		parts = append(parts, moodPart)
 	}
-	if sleepPart := recentSleepSummary(ctx, userID); sleepPart != "" {
+	if sleepPart != "" {
 		parts = append(parts, sleepPart)
 	}
+
 	if memory := loadMemorySummary(ctx, userID); memory != "" {
 		parts = append(parts, "What you remember about this person from past conversations: "+memory)
 	}
@@ -36,8 +52,8 @@ func buildUserContext(ctx context.Context, userID string) string {
 	return joined
 }
 
-func recentMoodSummary(ctx context.Context, userID string) string {
-	rows, err := db.Pool.Query(ctx,
+func recentMoodSummary(ctx context.Context, tx pgx.Tx, userID string) string {
+	rows, err := tx.Query(ctx,
 		`SELECT mood_score FROM mood_entries WHERE user_id=$1 AND time > now() - interval '7 days' ORDER BY time DESC`,
 		userID)
 	if err != nil {
@@ -66,9 +82,9 @@ func recentMoodSummary(ctx context.Context, userID string) string {
 	)
 }
 
-func recentSleepSummary(ctx context.Context, userID string) string {
+func recentSleepSummary(ctx context.Context, tx pgx.Tx, userID string) string {
 	var hours float64
-	err := db.Pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT hours FROM sleep_entries WHERE user_id=$1 ORDER BY time DESC LIMIT 1`, userID,
 	).Scan(&hours)
 	if err != nil {
@@ -77,6 +93,10 @@ func recentSleepSummary(ctx context.Context, userID string) string {
 	return fmt.Sprintf("Their most recent sleep log was %.1f hours.", hours)
 }
 
+// loadMemorySummary reads the encrypted memory column directly from
+// `users` via db.Pool (not RunAsUser) - that table isn't RLS-protected, see
+// docs/migration_rls.sql for why - and this lookup is already scoped by the
+// exact primary key, not a broader user-owned range of rows.
 func loadMemorySummary(ctx context.Context, userID string) string {
 	var encrypted *string
 	err := db.Pool.QueryRow(ctx, `SELECT memory_summary FROM users WHERE id=$1`, userID).Scan(&encrypted)
