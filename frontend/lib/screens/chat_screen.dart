@@ -241,10 +241,11 @@ class _ChatScreenState extends State<ChatScreen>
     await _reconnectFresh();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Connection needed a refresh - please send your message again")),
+        const SnackBar(
+            content: Text(
+                "Connection needed a refresh - please send your message again")),
       );
     }
-  }
   }
 
   void _dismissCrisisOverlay() => setState(() => _showCrisisOverlay = false);

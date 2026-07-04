@@ -176,8 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child:
-                const Text('Clear', style: TextStyle(color: AppColors.alert)),
+            child: Text('Clear', style: TextStyle(color: AppColors.alert)),
           ),
         ],
       ),
