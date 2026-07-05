@@ -75,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
         conversations: _conversations,
         loadingConversations: _loadingConversations,
         activeConversationId: _activeConversationId,
+        onNavigateToTab: (i) => setState(() => _currentIndex = i),
       ),
       const MoodScreen(),
       const VaultScreen(),
@@ -180,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
       conversations: _conversations,
       loadingConversations: _loadingConversations,
       activeConversationId: _activeConversationId,
+      onNavigateToTab: (i) => setState(() => _currentIndex = i),
     );
   }
 

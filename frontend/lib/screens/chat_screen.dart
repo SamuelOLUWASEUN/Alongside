@@ -22,12 +22,14 @@ class ChatScreen extends StatefulWidget {
   final List<ConversationSummary> conversations;
   final bool loadingConversations;
   final String? activeConversationId;
+  final ValueChanged<int>? onNavigateToTab; // 2=Mood, 3=Vault
   const ChatScreen({
     super.key,
     this.onConversationChanged,
     this.conversations = const [],
     this.loadingConversations = false,
     this.activeConversationId,
+    this.onNavigateToTab,
   });
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -196,6 +198,13 @@ class _ChatScreenState extends State<ChatScreen>
         _showCrisisOverlay = true;
         _crisisMessage = text;
         _messages.insert(0, ChatMessage(text, MessageSender.system, timestamp));
+      } else if (type == 'limit_reached') {
+        _waitingForAI = false;
+        _replyTimeoutTimer?.cancel();
+        _messages.insert(
+            0,
+            ChatMessage(text, MessageSender.system, timestamp,
+                showLimitActions: true));
       } else if (type == 'ai_response') {
         _waitingForAI = false;
         _replyTimeoutTimer?.cancel();
@@ -388,7 +397,13 @@ class _ChatScreenState extends State<ChatScreen>
     final Color bg;
     final Color textColor;
     final Border? border;
-    if (isSystem) {
+    if (msg.showLimitActions) {
+      // A softer, calmer style than the crisis alert - this is a friendly
+      // notice, not something alarming, and shouldn't look like one.
+      bg = AppColors.tideLight;
+      textColor = AppColors.charcoal;
+      border = Border.all(color: AppColors.tide.withOpacity(0.25));
+    } else if (isSystem) {
       bg = AppColors.alertTint;
       textColor = AppColors.alert;
       border = Border.all(color: AppColors.alert.withOpacity(0.25));
@@ -421,7 +436,7 @@ class _ChatScreenState extends State<ChatScreen>
       child: Column(
         crossAxisAlignment: alignment,
         children: [
-          if (isSystem)
+          if (isSystem && !msg.showLimitActions)
             Padding(
               padding: const EdgeInsets.only(bottom: 4, left: 4),
               child: Row(
@@ -453,6 +468,33 @@ class _ChatScreenState extends State<ChatScreen>
                   ?.copyWith(color: textColor, height: 1.4),
             ),
           ),
+          if (msg.showLimitActions)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.75),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => widget.onNavigateToTab?.call(2),
+                        icon: const Icon(Icons.insights_outlined, size: 16),
+                        label: const Text('Mood'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => widget.onNavigateToTab?.call(3),
+                        icon: const Icon(Icons.lock_outline, size: 16),
+                        label: const Text('Vault'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.only(top: 3, left: 4, right: 4),
             child: Text(
@@ -804,6 +846,8 @@ class ChatMessage {
   final String text;
   final MessageSender sender;
   final DateTime timestamp;
+  final bool showLimitActions;
 
-  ChatMessage(this.text, this.sender, this.timestamp);
+  ChatMessage(this.text, this.sender, this.timestamp,
+      {this.showLimitActions = false});
 }

@@ -37,8 +37,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             _emailController.text.trim(), _passwordController.text);
         await auth.login(
             _emailController.text.trim(), _passwordController.text);
-        // Record the consent choices made on this screen. Fire-and-forget:
-        // consent logging shouldn't block getting into the app.
         unawaited(ApiService.post('/consent/grant',
             {'type': 'mood_tracking', 'granted': _consentMoodTracking}));
         unawaited(ApiService.post('/consent/grant',
@@ -79,25 +77,40 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SizedBox(height: 12),
-                  const Center(child: ArcMotif(size: 96, strokeWidth: 7)),
-                  const SizedBox(height: 28),
+                  const Center(child: ArcMotif(size: 88, strokeWidth: 7)),
+                  const SizedBox(height: 24),
                   Text(
-                    _isLogin ? 'Welcome back' : 'A quiet place\nto check in',
+                    'Alongside',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.displayMedium,
+                    style: Theme.of(context).textTheme.displayLarge,
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Text(
-                    _isLogin
-                        ? "Glad you're here. Sign in to pick up where you left off."
-                        : 'Track how you feel, talk it through, and keep what matters to yourself private.',
+                    'A quiet space for your mind - somewhere to check in, talk it through, '
+                    'and keep what matters to yourself.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context)
                         .textTheme
                         .bodyMedium
-                        ?.copyWith(color: AppColors.mutedText),
+                        ?.copyWith(color: AppColors.mutedText, height: 1.4),
                   ),
-                  const SizedBox(height: 36),
+                  const SizedBox(height: 6),
+                  Text(
+                    'An AI that listens, day or night. Your Vault stays fully '
+                    'encrypted - not even the developer can read it.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: AppColors.mutedText, height: 1.4),
+                  ),
+                  const SizedBox(height: 32),
+                  Text(
+                    _isLogin ? 'Welcome back' : "Let's get you set up",
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 18),
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -178,6 +191,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       child: Text(_isLogin
                           ? "New here? Create an account"
                           : 'Already have an account? Sign in'),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Center(
+                    child: Text(
+                      "Tip: tap your browser menu and choose \"Add to Home Screen\" to use Alongside like an app.",
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(height: 1.4),
                     ),
                   ),
                 ],

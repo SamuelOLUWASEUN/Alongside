@@ -72,6 +72,11 @@ type Client struct {
 	// replayed from history on connect), so memory only gets updated when
 	// something actually new was discussed.
 	newMessagesThisSession int
+	// crisisExempt becomes permanently true for the rest of this session
+	// the first time a crisis keyword fires, so the daily message cap can
+	// never cut someone off mid-disclosure just because a later message in
+	// the same hard conversation didn't happen to contain a trigger word.
+	crisisExempt bool
 }
 
 func (c *Client) readPump() {
@@ -109,12 +114,21 @@ func (c *Client) readPump() {
 		c.newMessagesThisSession++
 
 		if safety.ContainsCrisisKeywords(incoming.Text) {
+			c.crisisExempt = true
 			alertText := safety.GetCrisisResponse()
 			c.saveMessage("system", alertText, time.Now())
 			alert := Message{Type: "crisis_alert", Text: alertText, Timestamp: time.Now().Unix()}
 			if resp, err := json.Marshal(alert); err == nil {
 				c.send <- resp
 			}
+		}
+
+		if !c.checkDailyLimit(context.Background()) {
+			limitMsg := Message{Type: "limit_reached", Text: limitReachedMessage, Timestamp: time.Now().Unix()}
+			if resp, err := json.Marshal(limitMsg); err == nil {
+				c.send <- resp
+			}
+			continue
 		}
 
 		aiText := ai.GenerateReply(c.history, c.userContext)
