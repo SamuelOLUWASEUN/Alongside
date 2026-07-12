@@ -52,16 +52,8 @@ class _ChatScreenState extends State<ChatScreen>
   bool _waitingForAI = false;
   bool _showCrisisOverlay = false;
   String _crisisMessage = '';
-  // True once the user has scrolled away from the latest message, so we
-  // don't yank their view back down mid-read.
   bool _userScrolledAway = false;
-  // The active conversation thread. Null until the server assigns one (via
-  // the "session" message) or we load a previously-stored one from disk.
   String? _conversationId;
-  // If a reply doesn't show up within this long, something's gone stale
-  // (mobile browsers commonly freeze background-tab WebSocket connections
-  // without actually closing them) - we reconnect rather than leaving the
-  // UI hanging silently forever.
   Timer? _replyTimeoutTimer;
 
   @override
@@ -543,7 +535,7 @@ class _ChatScreenState extends State<ChatScreen>
 /// Mobile equivalent of the desktop sidebar's "RECENT CHATS" list - there's
 /// no sidebar on narrow screens, so this is the only way to get back into a
 /// previous conversation there.
-class _RecentChatsSheet extends StatelessWidget {
+class _RecentChatsSheet extends StatefulWidget {
   final List<ConversationSummary> conversations;
   final bool loading;
   final String? activeConversationId;
@@ -561,6 +553,40 @@ class _RecentChatsSheet extends StatelessWidget {
     required this.onDelete,
     required this.onTogglePin,
   });
+
+  @override
+  State<_RecentChatsSheet> createState() => _RecentChatsSheetState();
+}
+
+class _RecentChatsSheetState extends State<_RecentChatsSheet> {
+  late List<ConversationSummary> _localConversations;
+
+  @override
+  void initState() {
+    super.initState();
+    _localConversations = List.of(widget.conversations);
+  }
+
+  Future<void> _handleDelete(String id) async {
+    setState(() => _localConversations.removeWhere((c) => c.id == id));
+    await widget.onDelete(id);
+  }
+
+  void _handleTogglePin(String id, bool pinned) {
+    setState(() {
+      final index = _localConversations.indexWhere((c) => c.id == id);
+      if (index != -1) {
+        final c = _localConversations[index];
+        _localConversations[index] =
+            ConversationSummary(c.id, c.title, c.lastAt, pinned: pinned);
+        _localConversations.sort((a, b) {
+          if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+          return b.lastAt.compareTo(a.lastAt);
+        });
+      }
+    });
+    widget.onTogglePin(id, pinned);
+  }
 
   void _showActions(BuildContext sheetContext, ConversationSummary c) {
     showModalBottomSheet(
@@ -605,7 +631,7 @@ class _RecentChatsSheet extends StatelessWidget {
               ),
               onTap: () {
                 Navigator.pop(actionContext);
-                onTogglePin(c.id, !c.pinned);
+                _handleTogglePin(c.id, !c.pinned);
               },
             ),
             ListTile(
@@ -616,7 +642,7 @@ class _RecentChatsSheet extends StatelessWidget {
               onTap: () async {
                 Navigator.pop(actionContext);
                 await confirmDeleteConversation(
-                    sheetContext, () => onDelete(c.id));
+                    sheetContext, () => _handleDelete(c.id));
               },
             ),
             const SizedBox(height: 8),
@@ -663,7 +689,7 @@ class _RecentChatsSheet extends StatelessWidget {
                     child: Text('Recent chats',
                         style: Theme.of(context).textTheme.titleMedium)),
                 TextButton.icon(
-                  onPressed: onNewChat,
+                  onPressed: widget.onNewChat,
                   icon: const Icon(Icons.edit_outlined, size: 16),
                   label: const Text('New chat'),
                 ),
@@ -672,12 +698,12 @@ class _RecentChatsSheet extends StatelessWidget {
           ),
           const Divider(height: 1),
           Flexible(
-            child: loading
+            child: widget.loading
                 ? const Padding(
                     padding: EdgeInsets.all(24),
                     child: Center(child: BreathingArc(size: 22)),
                   )
-                : conversations.isEmpty
+                : _localConversations.isEmpty
                     ? Padding(
                         padding: const EdgeInsets.all(24),
                         child: Text(
@@ -688,16 +714,16 @@ class _RecentChatsSheet extends StatelessWidget {
                     : ListView.builder(
                         shrinkWrap: true,
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: conversations.length,
+                        itemCount: _localConversations.length,
                         itemBuilder: (context, i) {
-                          final c = conversations[i];
-                          final selected = c.id == activeConversationId;
+                          final c = _localConversations[i];
+                          final selected = c.id == widget.activeConversationId;
                           return Material(
                             color: selected
                                 ? AppColors.tideLight
                                 : Colors.transparent,
                             child: InkWell(
-                              onTap: () => onSelect(c.id),
+                              onTap: () => widget.onSelect(c.id),
                               onLongPress: () => _showActions(context, c),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
