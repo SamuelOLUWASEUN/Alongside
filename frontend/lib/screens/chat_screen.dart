@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../widgets/arc_motif.dart';
 import '../config.dart';
 import '../models/conversation_summary.dart';
+import '../widgets/delete_conversation_dialog.dart';
 
 /// Lets a parent widget (the sidebar) trigger actions on the live
 /// ChatScreen instance kept alive inside the IndexedStack, without needing
@@ -23,6 +24,8 @@ class ChatScreen extends StatefulWidget {
   final bool loadingConversations;
   final String? activeConversationId;
   final ValueChanged<int>? onNavigateToTab; // 2=Mood, 3=Vault
+  final void Function(String id)? onDeleteConversation;
+  final void Function(String id, bool pinned)? onTogglePinConversation;
   const ChatScreen({
     super.key,
     this.onConversationChanged,
@@ -30,14 +33,14 @@ class ChatScreen extends StatefulWidget {
     this.loadingConversations = false,
     this.activeConversationId,
     this.onNavigateToTab,
+    this.onDeleteConversation,
+    this.onTogglePinConversation,
   });
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen>
-    with WidgetsBindingObserver
-    implements ChatScreenController {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver implements ChatScreenController {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = []; // newest first (list is reversed)
@@ -106,8 +109,7 @@ class _ChatScreenState extends State<ChatScreen>
 
   void _scrollToLatest() {
     if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(0,
-        duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    _scrollController.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
   }
 
   Future<void> _connect() async {
@@ -123,11 +125,8 @@ class _ChatScreenState extends State<ChatScreen>
     // it mints a fresh one and tells us via the "session" message.
     final storedConversationId = await ApiService.getConversationId();
     if (!mounted) return;
-    final conversationParam = storedConversationId != null
-        ? '&conversation=$storedConversationId'
-        : '';
-    final wsUrl =
-        Uri.parse(AppConfig.wsUrl('/ws/chat?token=$token$conversationParam'));
+    final conversationParam = storedConversationId != null ? '&conversation=$storedConversationId' : '';
+    final wsUrl = Uri.parse(AppConfig.wsUrl('/ws/chat?token=$token$conversationParam'));
     try {
       _channel = WebSocketChannel.connect(wsUrl);
       if (!mounted) return;
@@ -167,8 +166,7 @@ class _ChatScreenState extends State<ChatScreen>
 
     if (type == 'history') {
       // One-time batch replay of persisted chat history on (re)connect.
-      final rawMessages =
-          (json['messages'] as List).cast<Map<String, dynamic>>();
+      final rawMessages = (json['messages'] as List).cast<Map<String, dynamic>>();
       final replayed = rawMessages.map((m) {
         final sender = switch (m['type']) {
           'user_message' => MessageSender.user,
@@ -190,8 +188,7 @@ class _ChatScreenState extends State<ChatScreen>
     }
 
     final text = json['text'] as String;
-    final timestamp =
-        DateTime.fromMillisecondsSinceEpoch((json['timestamp'] as int) * 1000);
+    final timestamp = DateTime.fromMillisecondsSinceEpoch((json['timestamp'] as int) * 1000);
 
     setState(() {
       if (type == 'crisis_alert') {
@@ -201,18 +198,14 @@ class _ChatScreenState extends State<ChatScreen>
       } else if (type == 'limit_reached') {
         _waitingForAI = false;
         _replyTimeoutTimer?.cancel();
-        _messages.insert(
-            0,
-            ChatMessage(text, MessageSender.system, timestamp,
-                showLimitActions: true));
+        _messages.insert(0, ChatMessage(text, MessageSender.system, timestamp, showLimitActions: true));
       } else if (type == 'ai_response') {
         _waitingForAI = false;
         _replyTimeoutTimer?.cancel();
         _messages.insert(0, ChatMessage(text, MessageSender.ai, timestamp));
       }
     });
-    if (!_userScrolledAway)
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
+    if (!_userScrolledAway) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
   }
 
   void _sendMessage() {
@@ -243,9 +236,7 @@ class _ChatScreenState extends State<ChatScreen>
       _waitingForAI = true;
     });
     _controller.clear();
-    if (!_userScrolledAway) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
-    }
+    if (!_userScrolledAway) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
 
     // Safety net only: with the backend now generating replies off its
     // read loop, a genuinely stale (backgrounded) connection is the only
@@ -265,9 +256,7 @@ class _ChatScreenState extends State<ChatScreen>
     await _reconnectFresh();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                "Connection needed a refresh - please send your message again")),
+        const SnackBar(content: Text("Connection needed a refresh - please send your message again")),
       );
     }
   }
@@ -291,6 +280,8 @@ class _ChatScreenState extends State<ChatScreen>
           Navigator.pop(sheetContext);
           startNewChat();
         },
+        onDelete: (id) => widget.onDeleteConversation?.call(id),
+        onTogglePin: (id, pinned) => widget.onTogglePinConversation?.call(id, pinned),
       ),
     );
   }
@@ -385,8 +376,7 @@ class _ChatScreenState extends State<ChatScreen>
                         padding: const EdgeInsets.only(top: 12),
                         controller: _scrollController,
                         itemCount: _messages.length,
-                        itemBuilder: (context, index) =>
-                            _buildBubble(_messages[index]),
+                        itemBuilder: (context, index) => _buildBubble(_messages[index]),
                       ),
               ),
               if (_waitingForAI) const _ThinkingIndicator(),
@@ -394,8 +384,7 @@ class _ChatScreenState extends State<ChatScreen>
             ],
           ),
           if (_showCrisisOverlay)
-            CrisisOverlay(
-                onDismiss: _dismissCrisisOverlay, message: _crisisMessage),
+            CrisisOverlay(onDismiss: _dismissCrisisOverlay, message: _crisisMessage),
         ],
       ),
     );
@@ -404,8 +393,7 @@ class _ChatScreenState extends State<ChatScreen>
   Widget _buildBubble(ChatMessage msg) {
     final isUser = msg.sender == MessageSender.user;
     final isSystem = msg.sender == MessageSender.system;
-    final alignment =
-        isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final alignment = isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
 
     final Color bg;
     final Color textColor;
@@ -468,25 +456,19 @@ class _ChatScreenState extends State<ChatScreen>
               ),
             ),
           Container(
-            constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.75),
+            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-                color: bg, borderRadius: borderRadius, border: border),
+            decoration: BoxDecoration(color: bg, borderRadius: borderRadius, border: border),
             child: Text(
               msg.text,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: textColor, height: 1.4),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: textColor, height: 1.4),
             ),
           ),
           if (msg.showLimitActions)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: ConstrainedBox(
-                constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.75),
+                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
                 child: Row(
                   children: [
                     Expanded(
@@ -543,8 +525,7 @@ class _ChatScreenState extends State<ChatScreen>
                   hintText: 'Type how you\'re feeling...',
                   border: InputBorder.none,
                   filled: false,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                 ),
               ),
             ),
@@ -558,8 +539,7 @@ class _ChatScreenState extends State<ChatScreen>
               onTap: _sendMessage,
               child: const Padding(
                 padding: EdgeInsets.all(13),
-                child: Icon(Icons.arrow_upward_rounded,
-                    color: Colors.white, size: 20),
+                child: Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
               ),
             ),
           ),
@@ -578,6 +558,8 @@ class _RecentChatsSheet extends StatelessWidget {
   final String? activeConversationId;
   final ValueChanged<String> onSelect;
   final VoidCallback onNewChat;
+  final void Function(String id) onDelete;
+  final void Function(String id, bool pinned) onTogglePin;
 
   const _RecentChatsSheet({
     required this.conversations,
@@ -585,7 +567,65 @@ class _RecentChatsSheet extends StatelessWidget {
     required this.activeConversationId,
     required this.onSelect,
     required this.onNewChat,
+    required this.onDelete,
+    required this.onTogglePin,
   });
+
+  // Long-press a conversation to bring up its actions - the mobile
+  // equivalent of the desktop row's "⋯" menu.
+  void _showActions(BuildContext sheetContext, ConversationSummary c) {
+    showModalBottomSheet(
+      context: sheetContext,
+      backgroundColor: Colors.transparent,
+      builder: (actionContext) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(24)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(width: 36, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  c.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(actionContext).textTheme.titleMedium,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: Icon(c.pinned ? Icons.push_pin_outlined : Icons.push_pin, color: AppColors.tide),
+              title: Text(c.pinned ? 'Unpin' : 'Pin'),
+              subtitle: Text(
+                c.pinned ? 'Remove from the top of your list' : 'Keep this one close, at the top',
+                style: Theme.of(actionContext).textTheme.labelSmall,
+              ),
+              onTap: () {
+                Navigator.pop(actionContext);
+                onTogglePin(c.id, !c.pinned);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_outline, color: AppColors.alert),
+              title: Text('Delete', style: TextStyle(color: AppColors.alert)),
+              subtitle: Text('Permanently erase this conversation', style: Theme.of(actionContext).textTheme.labelSmall),
+              onTap: () async {
+                Navigator.pop(actionContext);
+                final confirmed = await confirmDeleteConversation(sheetContext);
+                if (confirmed) onDelete(c.id);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
 
   String _relativeTime(DateTime t) {
     final diff = DateTime.now().difference(t);
@@ -599,8 +639,7 @@ class _RecentChatsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints:
-          BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -610,19 +649,12 @@ class _RecentChatsSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 10),
-          Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: AppColors.line,
-                  borderRadius: BorderRadius.circular(2))),
+          Container(width: 36, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(2))),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 12, 6),
             child: Row(
               children: [
-                Expanded(
-                    child: Text('Recent chats',
-                        style: Theme.of(context).textTheme.titleMedium)),
+                Expanded(child: Text('Recent chats', style: Theme.of(context).textTheme.titleMedium)),
                 TextButton.icon(
                   onPressed: onNewChat,
                   icon: const Icon(Icons.edit_outlined, size: 16),
@@ -654,42 +686,39 @@ class _RecentChatsSheet extends StatelessWidget {
                           final c = conversations[i];
                           final selected = c.id == activeConversationId;
                           return Material(
-                            color: selected
-                                ? AppColors.tideLight
-                                : Colors.transparent,
+                            color: selected ? AppColors.tideLight : Colors.transparent,
                             child: InkWell(
                               onTap: () => onSelect(c.id),
+                              onLongPress: () => _showActions(context, c),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 20, vertical: 14),
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.forum_outlined,
-                                        size: 18,
-                                        color: selected
-                                            ? AppColors.tide
-                                            : AppColors.mutedText),
+                                    Icon(
+                                      c.pinned ? Icons.push_pin : Icons.forum_outlined,
+                                      size: 18,
+                                      color: c.pinned
+                                          ? AppColors.ember
+                                          : (selected ? AppColors.tide : AppColors.mutedText),
+                                    ),
                                     const SizedBox(width: 14),
                                     Expanded(
                                       child: Text(
                                         c.title,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(
-                                              fontWeight: selected
-                                                  ? FontWeight.w700
-                                                  : FontWeight.w400,
+                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                              fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
                                             ),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
-                                    Text(_relativeTime(c.lastAt),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .labelSmall),
+                                    Text(_relativeTime(c.lastAt), style: Theme.of(context).textTheme.labelSmall),
+                                    IconButton(
+                                      icon: Icon(Icons.more_horiz, size: 18, color: AppColors.mutedText),
+                                      onPressed: () => _showActions(context, c),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -750,15 +779,12 @@ class _EmptyChatState extends StatelessWidget {
                     borderRadius: BorderRadius.circular(14),
                     onTap: () => onPromptTap(p),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: AppColors.line),
                       ),
-                      child: Text(p,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                          textAlign: TextAlign.center),
+                      child: Text(p, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
                     ),
                   ),
                 ),
@@ -799,8 +825,7 @@ class CrisisOverlay extends StatelessWidget {
   final VoidCallback onDismiss;
   final String message;
 
-  const CrisisOverlay(
-      {super.key, required this.onDismiss, required this.message});
+  const CrisisOverlay({super.key, required this.onDismiss, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -820,8 +845,7 @@ class CrisisOverlay extends StatelessWidget {
               Container(
                 width: 56,
                 height: 56,
-                decoration: BoxDecoration(
-                    color: AppColors.alertTint, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: AppColors.alertTint, shape: BoxShape.circle),
                 child: Icon(Icons.favorite, color: AppColors.alert, size: 26),
               ),
               const SizedBox(height: 18),
@@ -833,17 +857,13 @@ class CrisisOverlay extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 message,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: AppColors.mutedText, height: 1.5),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.mutedText, height: 1.5),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
-                    onPressed: onDismiss, child: const Text('I understand')),
+                child: ElevatedButton(onPressed: onDismiss, child: const Text('I understand')),
               ),
             ],
           ),
@@ -861,6 +881,5 @@ class ChatMessage {
   final DateTime timestamp;
   final bool showLimitActions;
 
-  ChatMessage(this.text, this.sender, this.timestamp,
-      {this.showLimitActions = false});
+  ChatMessage(this.text, this.sender, this.timestamp, {this.showLimitActions = false});
 }

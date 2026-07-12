@@ -108,25 +108,9 @@ CREATE INDEX idx_chat_messages_user_created ON chat_messages (user_id, created_a
 CREATE INDEX idx_chat_messages_conversation ON chat_messages (conversation_id, created_at);
 
 -- Row-level security: makes cross-user isolation a database-enforced rule,
--- not only something the application code has to remember correctly on
--- every query. Applied to genuinely user-scoped content tables.
---
--- NOT applied to `users` itself: login and registration need to look up a
--- row by email before any authenticated user context exists at all, which
--- is fundamentally incompatible with a "you can only see your own row"
--- rule. The one sensitive column on that table (memory_summary) is already
--- separately protected via application-level AES-256-GCM encryption.
---
--- IMPORTANT GOTCHA this migration accounts for: Postgres row-level security
--- policies are silently BYPASSED for a table's owner by default. Since the
--- app's own connection role is very likely the owner (it's what ran
--- schema.sql originally), ENABLE ROW LEVEL SECURITY alone would do
--- *nothing* - every policy below is also explicitly FORCEd, which closes
--- that gap and makes the policy apply even to the owning role.
---
--- Run this ONCE against an already-running database (local or Railway):
---   Get-Content docs/migration_rls.sql | docker compose exec -T postgres psql -U innerarc -d innerarc
-
+-- not only something application code has to remember on every query. Not
+-- applied to `users` itself - see docs/migration_rls.sql for why, and for
+-- the FORCE ROW LEVEL SECURITY gotcha this depends on.
 ALTER TABLE mood_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mood_entries FORCE ROW LEVEL SECURITY;
 CREATE POLICY mood_entries_user_isolation ON mood_entries
@@ -163,4 +147,18 @@ CREATE POLICY crisis_alerts_user_isolation ON crisis_alerts
     USING (user_id::text = current_setting('app.current_user_id', true))
     WITH CHECK (user_id::text = current_setting('app.current_user_id', true));
 
-    
+-- Per-conversation metadata (currently just pin state). Conversations are
+-- otherwise just messages sharing a conversation_id; this is the one place
+-- custom per-conversation state lives. See docs/migration_conversation_meta.sql.
+CREATE TABLE conversation_meta (
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id UUID NOT NULL,
+    pinned          BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at      TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (user_id, conversation_id)
+);
+ALTER TABLE conversation_meta ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_meta FORCE ROW LEVEL SECURITY;
+CREATE POLICY conversation_meta_user_isolation ON conversation_meta
+    USING (user_id::text = current_setting('app.current_user_id', true))
+    WITH CHECK (user_id::text = current_setting('app.current_user_id', true));
