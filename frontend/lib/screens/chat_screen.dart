@@ -217,10 +217,20 @@ class _ChatScreenState extends State<ChatScreen>
 
   void _sendMessage() {
     final text = _controller.text.trim();
-    // Also guard against sending a second message before the first reply
-    // has arrived - avoids piling up requests if someone taps send
-    // impatiently while the connection is slow or stale.
-    if (text.isEmpty || _channel == null || _waitingForAI) return;
+    if (text.isEmpty || _channel == null) return;
+    // If a reply is still coming, don't silently swallow the new message -
+    // let the person know their coach is still responding, so a tap that
+    // does nothing doesn't feel like the app broke. Their text stays in the
+    // box so they can send it the moment the reply lands.
+    if (_waitingForAI) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Give me a moment to finish replying...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
     final now = DateTime.now();
     final payload = jsonEncode({
       'type': 'user_message',
@@ -233,17 +243,20 @@ class _ChatScreenState extends State<ChatScreen>
       _waitingForAI = true;
     });
     _controller.clear();
-    if (!_userScrolledAway)
+    if (!_userScrolledAway) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
+    }
 
-    // If nothing comes back in a reasonable time, the connection is
-    // probably stale (see didChangeAppLifecycleState) rather than the AI
-    // actually taking that long - reconnect automatically instead of
-    // leaving the "thinking" indicator spinning forever. Groq typically
-    // replies in 1-3 seconds, so 8 seconds is a safe buffer without making
-    // a genuinely stale connection feel like a long stall.
+    // Safety net only: with the backend now generating replies off its
+    // read loop, a genuinely stale (backgrounded) connection is the only
+    // reason a reply wouldn't arrive - but a long, thoughtful AI generation
+    // can still legitimately take 15-20s, so this ceiling is deliberately
+    // generous to avoid falsely reconnecting mid-reply (which was showing
+    // "connection needed a refresh" and replaying history even when nothing
+    // was actually wrong). 30s comfortably clears real replies while still
+    // rescuing a truly dead connection.
     _replyTimeoutTimer?.cancel();
-    _replyTimeoutTimer = Timer(const Duration(seconds: 8), () {
+    _replyTimeoutTimer = Timer(const Duration(seconds: 30), () {
       if (mounted && _waitingForAI) _handleStaleConnection();
     });
   }

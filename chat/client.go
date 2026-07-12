@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -17,7 +18,7 @@ import (
 )
 
 const (
-	writeWait      = 10 * time.Second
+	writeWait = 10 * time.Second
 	// Backgrounded mobile connections often die silently (OS drops the
 	// socket with no close handshake) - the server only notices via this
 	// ping/pong timeout, so keeping it short means a dead connection gets
@@ -77,6 +78,10 @@ type Client struct {
 	// never cut someone off mid-disclosure just because a later message in
 	// the same hard conversation didn't happen to contain a trigger word.
 	crisisExempt bool
+	// historyMu guards history, which is now appended to from both the read
+	// loop (user messages) and the per-turn AI goroutines (assistant
+	// replies), so the two can't race on the same slice.
+	historyMu sync.Mutex
 }
 
 func (c *Client) readPump() {
@@ -131,14 +136,47 @@ func (c *Client) readPump() {
 			continue
 		}
 
-		aiText := ai.GenerateReply(c.history, c.userContext)
-		c.appendHistory(openai.ChatMessageRoleAssistant, aiText)
-		aiTime := time.Now()
-		c.saveMessage("ai", aiText, aiTime)
+		// Generate the AI reply in its own goroutine so this read loop is
+		// never blocked waiting on Groq. If the AI call ran inline here (as
+		// it used to), the loop couldn't read a second message the person
+		// sent while the first reply was still generating - that stalled
+		// message then collided with the client's stale-connection timeout,
+		// which is what caused both the "loads previous chats" history
+		// replay and the "connection needed a refresh" errors. A locked
+		// snapshot of history is passed in so the goroutine reads a stable
+		// copy rather than racing with appendHistory on the next turn.
+		go c.generateAndSend(c.historyCopy())
+	}
+}
 
-		response := Message{Type: "ai_response", Text: aiText, Timestamp: aiTime.Unix()}
-		if respBytes, err := json.Marshal(response); err == nil {
-			c.send <- respBytes
+// generateAndSend runs one AI turn off the read loop. It appends the reply
+// to shared history and pushes it to the write pump via the buffered send
+// channel. Because Groq processes a given connection's requests in the
+// order they're sent and this uses the same ordered send channel, replies
+// still arrive in order for normal back-and-forth; the point of the
+// goroutine is purely to keep the read loop free, not to parallelize a
+// single person's turns.
+func (c *Client) generateAndSend(history []openai.ChatCompletionMessage) {
+	defer func() {
+		// A panic in the AI path (nil deref, etc.) must never take down the
+		// whole server - recover, log, and let the person keep chatting.
+		if r := recover(); r != nil {
+			log.Printf("chat: recovered from panic in AI generation: %v", r)
+		}
+	}()
+
+	aiText := ai.GenerateReply(history, c.userContext)
+	c.appendHistory(openai.ChatMessageRoleAssistant, aiText)
+	aiTime := time.Now()
+	c.saveMessage("ai", aiText, aiTime)
+
+	response := Message{Type: "ai_response", Text: aiText, Timestamp: aiTime.Unix()}
+	if respBytes, err := json.Marshal(response); err == nil {
+		// Non-blocking send: if the client has already disconnected, the
+		// send channel may be closed/full - don't let this goroutine wedge.
+		select {
+		case c.send <- respBytes:
+		default:
 		}
 	}
 }
@@ -159,20 +197,33 @@ func (c *Client) saveMessage(sender, text string, at time.Time) {
 }
 
 func (c *Client) appendHistory(role, content string) {
+	c.historyMu.Lock()
+	defer c.historyMu.Unlock()
 	c.history = append(c.history, openai.ChatCompletionMessage{Role: role, Content: content})
 	if len(c.history) > maxHistoryLen {
 		c.history = c.history[len(c.history)-maxHistoryLen:]
 	}
 }
 
+// historyCopy returns a stable snapshot of the current history under lock,
+// so an AI goroutine reads a consistent slice rather than one being mutated
+// by a concurrent appendHistory.
+func (c *Client) historyCopy() []openai.ChatCompletionMessage {
+	c.historyMu.Lock()
+	defer c.historyMu.Unlock()
+	out := make([]openai.ChatCompletionMessage, len(c.history))
+	copy(out, c.history)
+	return out
+}
+
 // updateMemory asks the AI to fold this session into an updated
-// cross-conversation memory summary, then persists it. Runs in its own
-// goroutine after the connection has already closed, using
+// cross-conversation memory summary, encrypts it at rest, then persists it.
+// Runs in its own goroutine after the connection has already closed, using
 // context.Background() since the original request context is gone by then.
 func (c *Client) updateMemory() {
 	ctx := context.Background()
 	existing := loadMemorySummary(ctx, c.userID)
-	updated := ai.SummarizeForMemory(existing, c.history)
+	updated := ai.SummarizeForMemory(existing, c.historyCopy())
 	if updated == "" || updated == existing {
 		return
 	}
@@ -212,4 +263,3 @@ func (c *Client) writePump() {
 		}
 	}
 }
-
