@@ -24,7 +24,7 @@ class ChatScreen extends StatefulWidget {
   final bool loadingConversations;
   final String? activeConversationId;
   final ValueChanged<int>? onNavigateToTab; // 2=Mood, 3=Vault
-  final void Function(String id)? onDeleteConversation;
+  final Future<void> Function(String id)? onDeleteConversation;
   final void Function(String id, bool pinned)? onTogglePinConversation;
   const ChatScreen({
     super.key,
@@ -40,7 +40,9 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver implements ChatScreenController {
+class _ChatScreenState extends State<ChatScreen>
+    with WidgetsBindingObserver
+    implements ChatScreenController {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = []; // newest first (list is reversed)
@@ -72,12 +74,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Mobile browsers routinely suspend a backgrounded tab's WebSocket
-    // handling to save battery - the connection can look "alive" client-side
-    // while actually being frozen, so a reply sent while the tab was
-    // backgrounded never gets processed until something wakes it up. Force
-    // a clean reconnect whenever the app comes back to the foreground so
-    // that doesn't require the person to notice and manually retry.
     if (state == AppLifecycleState.resumed) {
       _reconnectFresh();
     }
@@ -91,10 +87,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
     if (mounted) {
       setState(() {
         _isConnected = false;
-        // This was the actual bug: without resetting this, _sendMessage's
-        // guard against double-sends would permanently block every future
-        // message after a timeout-triggered reconnect, since nothing ever
-        // told it the original wait was over.
         _waitingForAI = false;
       });
     }
@@ -103,13 +95,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
-    // List is reversed, so "latest" sits at offset 0.
     _userScrolledAway = _scrollController.position.pixels > 50;
   }
 
   void _scrollToLatest() {
     if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    _scrollController.animateTo(0,
+        duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
   }
 
   Future<void> _connect() async {
@@ -119,14 +111,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
       setState(() => _isConnected = false);
       return;
     }
-    // Running as Windows desktop / Chrome, not an Android emulator, so we
-    // talk to the backend on localhost directly. If we have a stored
-    // conversation ID, ask the server to continue that thread; otherwise
-    // it mints a fresh one and tells us via the "session" message.
     final storedConversationId = await ApiService.getConversationId();
     if (!mounted) return;
-    final conversationParam = storedConversationId != null ? '&conversation=$storedConversationId' : '';
-    final wsUrl = Uri.parse(AppConfig.wsUrl('/ws/chat?token=$token$conversationParam'));
+    final conversationParam = storedConversationId != null
+        ? '&conversation=$storedConversationId'
+        : '';
+    final wsUrl =
+        Uri.parse(AppConfig.wsUrl('/ws/chat?token=$token$conversationParam'));
     try {
       _channel = WebSocketChannel.connect(wsUrl);
       if (!mounted) return;
@@ -146,9 +137,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
   }
 
   void _handleIncoming(dynamic data) {
-    // The screen may have been disposed (e.g. user switched tabs) between
-    // the WebSocket delivering data and this callback running - bail out
-    // rather than calling setState on a dead widget.
     if (!mounted) return;
 
     final json = jsonDecode(data as String);
@@ -165,8 +153,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
     }
 
     if (type == 'history') {
-      // One-time batch replay of persisted chat history on (re)connect.
-      final rawMessages = (json['messages'] as List).cast<Map<String, dynamic>>();
+      final rawMessages =
+          (json['messages'] as List).cast<Map<String, dynamic>>();
       final replayed = rawMessages.map((m) {
         final sender = switch (m['type']) {
           'user_message' => MessageSender.user,
@@ -180,7 +168,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
         );
       }).toList();
       setState(() {
-        // rawMessages arrives oldest-first; the display list is newest-first.
         _messages.insertAll(0, replayed.reversed);
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
@@ -188,7 +175,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
     }
 
     final text = json['text'] as String;
-    final timestamp = DateTime.fromMillisecondsSinceEpoch((json['timestamp'] as int) * 1000);
+    final timestamp =
+        DateTime.fromMillisecondsSinceEpoch((json['timestamp'] as int) * 1000);
 
     setState(() {
       if (type == 'crisis_alert') {
@@ -198,23 +186,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
       } else if (type == 'limit_reached') {
         _waitingForAI = false;
         _replyTimeoutTimer?.cancel();
-        _messages.insert(0, ChatMessage(text, MessageSender.system, timestamp, showLimitActions: true));
+        _messages.insert(
+            0,
+            ChatMessage(text, MessageSender.system, timestamp,
+                showLimitActions: true));
       } else if (type == 'ai_response') {
         _waitingForAI = false;
         _replyTimeoutTimer?.cancel();
         _messages.insert(0, ChatMessage(text, MessageSender.ai, timestamp));
       }
     });
-    if (!_userScrolledAway) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
+    if (!_userScrolledAway)
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
   }
 
   void _sendMessage() {
     final text = _controller.text.trim();
     if (text.isEmpty || _channel == null) return;
-    // If a reply is still coming, don't silently swallow the new message -
-    // let the person know their coach is still responding, so a tap that
-    // does nothing doesn't feel like the app broke. Their text stays in the
-    // box so they can send it the moment the reply lands.
     if (_waitingForAI) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -236,16 +224,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
       _waitingForAI = true;
     });
     _controller.clear();
-    if (!_userScrolledAway) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
+    if (!_userScrolledAway)
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
 
-    // Safety net only: with the backend now generating replies off its
-    // read loop, a genuinely stale (backgrounded) connection is the only
-    // reason a reply wouldn't arrive - but a long, thoughtful AI generation
-    // can still legitimately take 15-20s, so this ceiling is deliberately
-    // generous to avoid falsely reconnecting mid-reply (which was showing
-    // "connection needed a refresh" and replaying history even when nothing
-    // was actually wrong). 30s comfortably clears real replies while still
-    // rescuing a truly dead connection.
     _replyTimeoutTimer?.cancel();
     _replyTimeoutTimer = Timer(const Duration(seconds: 30), () {
       if (mounted && _waitingForAI) _handleStaleConnection();
@@ -256,7 +237,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
     await _reconnectFresh();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Connection needed a refresh - please send your message again")),
+        const SnackBar(
+            content: Text(
+                "Connection needed a refresh - please send your message again")),
       );
     }
   }
@@ -280,8 +263,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
           Navigator.pop(sheetContext);
           startNewChat();
         },
-        onDelete: (id) => widget.onDeleteConversation?.call(id),
-        onTogglePin: (id, pinned) => widget.onTogglePinConversation?.call(id, pinned),
+        onDelete: (id) async => widget.onDeleteConversation?.call(id),
+        onTogglePin: (id, pinned) =>
+            widget.onTogglePinConversation?.call(id, pinned),
       ),
     );
   }
@@ -321,8 +305,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
 
   @override
   void dispose() {
-    // Cancel the subscription first so no late event can fire a callback
-    // against this (about to be dead) widget, then close the socket.
     WidgetsBinding.instance.removeObserver(this);
     _replyTimeoutTimer?.cancel();
     _channelSubscription?.cancel();
@@ -376,7 +358,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
                         padding: const EdgeInsets.only(top: 12),
                         controller: _scrollController,
                         itemCount: _messages.length,
-                        itemBuilder: (context, index) => _buildBubble(_messages[index]),
+                        itemBuilder: (context, index) =>
+                            _buildBubble(_messages[index]),
                       ),
               ),
               if (_waitingForAI) const _ThinkingIndicator(),
@@ -384,7 +367,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
             ],
           ),
           if (_showCrisisOverlay)
-            CrisisOverlay(onDismiss: _dismissCrisisOverlay, message: _crisisMessage),
+            CrisisOverlay(
+                onDismiss: _dismissCrisisOverlay, message: _crisisMessage),
         ],
       ),
     );
@@ -393,14 +377,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
   Widget _buildBubble(ChatMessage msg) {
     final isUser = msg.sender == MessageSender.user;
     final isSystem = msg.sender == MessageSender.system;
-    final alignment = isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final alignment =
+        isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
 
     final Color bg;
     final Color textColor;
     final Border? border;
     if (msg.showLimitActions) {
-      // A softer, calmer style than the crisis alert - this is a friendly
-      // notice, not something alarming, and shouldn't look like one.
       bg = AppColors.tideLight;
       textColor = AppColors.charcoal;
       border = Border.all(color: AppColors.tide.withOpacity(0.25));
@@ -456,19 +439,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
               ),
             ),
           Container(
-            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.75),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(color: bg, borderRadius: borderRadius, border: border),
+            decoration: BoxDecoration(
+                color: bg, borderRadius: borderRadius, border: border),
             child: Text(
               msg.text,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: textColor, height: 1.4),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: textColor, height: 1.4),
             ),
           ),
           if (msg.showLimitActions)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.75),
                 child: Row(
                   children: [
                     Expanded(
@@ -525,7 +514,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
                   hintText: 'Type how you\'re feeling...',
                   border: InputBorder.none,
                   filled: false,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                 ),
               ),
             ),
@@ -539,7 +529,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver imp
               onTap: _sendMessage,
               child: const Padding(
                 padding: EdgeInsets.all(13),
-                child: Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
+                child: Icon(Icons.arrow_upward_rounded,
+                    color: Colors.white, size: 20),
               ),
             ),
           ),
@@ -558,7 +549,7 @@ class _RecentChatsSheet extends StatelessWidget {
   final String? activeConversationId;
   final ValueChanged<String> onSelect;
   final VoidCallback onNewChat;
-  final void Function(String id) onDelete;
+  final Future<void> Function(String id) onDelete;
   final void Function(String id, bool pinned) onTogglePin;
 
   const _RecentChatsSheet({
@@ -571,20 +562,24 @@ class _RecentChatsSheet extends StatelessWidget {
     required this.onTogglePin,
   });
 
-  // Long-press a conversation to bring up its actions - the mobile
-  // equivalent of the desktop row's "⋯" menu.
   void _showActions(BuildContext sheetContext, ConversationSummary c) {
     showModalBottomSheet(
       context: sheetContext,
       backgroundColor: Colors.transparent,
       builder: (actionContext) => Container(
         margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(24)),
+        decoration: BoxDecoration(
+            color: AppColors.surface, borderRadius: BorderRadius.circular(24)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 10),
-            Container(width: 36, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(2))),
+            Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: AppColors.line,
+                    borderRadius: BorderRadius.circular(2))),
             const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
@@ -599,10 +594,13 @@ class _RecentChatsSheet extends StatelessWidget {
               ),
             ),
             ListTile(
-              leading: Icon(c.pinned ? Icons.push_pin_outlined : Icons.push_pin, color: AppColors.tide),
+              leading: Icon(c.pinned ? Icons.push_pin_outlined : Icons.push_pin,
+                  color: AppColors.tide),
               title: Text(c.pinned ? 'Unpin' : 'Pin'),
               subtitle: Text(
-                c.pinned ? 'Remove from the top of your list' : 'Keep this one close, at the top',
+                c.pinned
+                    ? 'Remove from the top of your list'
+                    : 'Keep this one close, at the top',
                 style: Theme.of(actionContext).textTheme.labelSmall,
               ),
               onTap: () {
@@ -613,11 +611,12 @@ class _RecentChatsSheet extends StatelessWidget {
             ListTile(
               leading: Icon(Icons.delete_outline, color: AppColors.alert),
               title: Text('Delete', style: TextStyle(color: AppColors.alert)),
-              subtitle: Text('Permanently erase this conversation', style: Theme.of(actionContext).textTheme.labelSmall),
+              subtitle: Text('Permanently erase this conversation',
+                  style: Theme.of(actionContext).textTheme.labelSmall),
               onTap: () async {
                 Navigator.pop(actionContext);
-                final confirmed = await confirmDeleteConversation(sheetContext);
-                if (confirmed) onDelete(c.id);
+                await confirmDeleteConversation(
+                    sheetContext, () => onDelete(c.id));
               },
             ),
             const SizedBox(height: 8),
@@ -639,7 +638,8 @@ class _RecentChatsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+      constraints:
+          BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -649,12 +649,19 @@ class _RecentChatsSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 10),
-          Container(width: 36, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(2))),
+          Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: AppColors.line,
+                  borderRadius: BorderRadius.circular(2))),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 12, 6),
             child: Row(
               children: [
-                Expanded(child: Text('Recent chats', style: Theme.of(context).textTheme.titleMedium)),
+                Expanded(
+                    child: Text('Recent chats',
+                        style: Theme.of(context).textTheme.titleMedium)),
                 TextButton.icon(
                   onPressed: onNewChat,
                   icon: const Icon(Icons.edit_outlined, size: 16),
@@ -686,20 +693,27 @@ class _RecentChatsSheet extends StatelessWidget {
                           final c = conversations[i];
                           final selected = c.id == activeConversationId;
                           return Material(
-                            color: selected ? AppColors.tideLight : Colors.transparent,
+                            color: selected
+                                ? AppColors.tideLight
+                                : Colors.transparent,
                             child: InkWell(
                               onTap: () => onSelect(c.id),
                               onLongPress: () => _showActions(context, c),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 20, vertical: 14),
                                 child: Row(
                                   children: [
                                     Icon(
-                                      c.pinned ? Icons.push_pin : Icons.forum_outlined,
+                                      c.pinned
+                                          ? Icons.push_pin
+                                          : Icons.forum_outlined,
                                       size: 18,
                                       color: c.pinned
                                           ? AppColors.ember
-                                          : (selected ? AppColors.tide : AppColors.mutedText),
+                                          : (selected
+                                              ? AppColors.tide
+                                              : AppColors.mutedText),
                                     ),
                                     const SizedBox(width: 14),
                                     Expanded(
@@ -707,15 +721,24 @@ class _RecentChatsSheet extends StatelessWidget {
                                         c.title,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                              fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: selected
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w400,
                                             ),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
-                                    Text(_relativeTime(c.lastAt), style: Theme.of(context).textTheme.labelSmall),
+                                    Text(_relativeTime(c.lastAt),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall),
                                     IconButton(
-                                      icon: Icon(Icons.more_horiz, size: 18, color: AppColors.mutedText),
+                                      icon: Icon(Icons.more_horiz,
+                                          size: 18, color: AppColors.mutedText),
                                       onPressed: () => _showActions(context, c),
                                       visualDensity: VisualDensity.compact,
                                     ),
@@ -779,12 +802,15 @@ class _EmptyChatState extends StatelessWidget {
                     borderRadius: BorderRadius.circular(14),
                     onTap: () => onPromptTap(p),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: AppColors.line),
                       ),
-                      child: Text(p, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+                      child: Text(p,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                          textAlign: TextAlign.center),
                     ),
                   ),
                 ),
@@ -825,7 +851,8 @@ class CrisisOverlay extends StatelessWidget {
   final VoidCallback onDismiss;
   final String message;
 
-  const CrisisOverlay({super.key, required this.onDismiss, required this.message});
+  const CrisisOverlay(
+      {super.key, required this.onDismiss, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -845,7 +872,8 @@ class CrisisOverlay extends StatelessWidget {
               Container(
                 width: 56,
                 height: 56,
-                decoration: BoxDecoration(color: AppColors.alertTint, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                    color: AppColors.alertTint, shape: BoxShape.circle),
                 child: Icon(Icons.favorite, color: AppColors.alert, size: 26),
               ),
               const SizedBox(height: 18),
@@ -857,13 +885,17 @@ class CrisisOverlay extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 message,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.mutedText, height: 1.5),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: AppColors.mutedText, height: 1.5),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(onPressed: onDismiss, child: const Text('I understand')),
+                child: ElevatedButton(
+                    onPressed: onDismiss, child: const Text('I understand')),
               ),
             ],
           ),
@@ -881,5 +913,6 @@ class ChatMessage {
   final DateTime timestamp;
   final bool showLimitActions;
 
-  ChatMessage(this.text, this.sender, this.timestamp, {this.showLimitActions = false});
+  ChatMessage(this.text, this.sender, this.timestamp,
+      {this.showLimitActions = false});
 }
