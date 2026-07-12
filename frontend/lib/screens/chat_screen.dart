@@ -55,6 +55,10 @@ class _ChatScreenState extends State<ChatScreen>
   bool _userScrolledAway = false;
   String? _conversationId;
   Timer? _replyTimeoutTimer;
+  // Updated whenever the connection is freshly established or a real
+  // round-trip succeeds - lets _sendMessage tell "probably still fine" from
+  // "hasn't been proven alive in a while" before trusting it.
+  DateTime? _lastKnownGoodAt;
 
   @override
   void initState() {
@@ -114,6 +118,7 @@ class _ChatScreenState extends State<ChatScreen>
       _channel = WebSocketChannel.connect(wsUrl);
       if (!mounted) return;
       setState(() => _isConnected = true);
+      _lastKnownGoodAt = DateTime.now();
       _channelSubscription = _channel!.stream.listen(
         _handleIncoming,
         onError: (_) {
@@ -185,6 +190,7 @@ class _ChatScreenState extends State<ChatScreen>
       } else if (type == 'ai_response') {
         _waitingForAI = false;
         _replyTimeoutTimer?.cancel();
+        _lastKnownGoodAt = DateTime.now();
         _messages.insert(0, ChatMessage(text, MessageSender.ai, timestamp));
       }
     });
@@ -192,7 +198,7 @@ class _ChatScreenState extends State<ChatScreen>
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToLatest());
   }
 
-  void _sendMessage() {
+  Future<void> _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _channel == null) return;
     if (_waitingForAI) {
@@ -204,6 +210,15 @@ class _ChatScreenState extends State<ChatScreen>
       );
       return;
     }
+
+    final stale = _lastKnownGoodAt == null ||
+        DateTime.now().difference(_lastKnownGoodAt!) >
+            const Duration(seconds: 25);
+    if (stale) {
+      await _reconnectFresh();
+      if (_channel == null) return;
+    }
+
     final now = DateTime.now();
     final payload = jsonEncode({
       'type': 'user_message',
